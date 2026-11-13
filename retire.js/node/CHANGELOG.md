@@ -1,0 +1,448 @@
+# Changelog
+
+## [6.1.1]
+
+### Bugfixes
+
+- Content hashes in filenames and URLs (e.g. `svelte-890f984e77ad.js`, `vue-7951fbedcefd.min.js`, `/npm/vue@7951fbedcefd`) were interpreted as version numbers and reported as vulnerable. Filename and URI detection now ignores a "version" that is 7 or more hexadecimal characters with no dots. Detection based on file content is unchanged.
+
+## [6.1.0]
+
+### Improvements
+
+- Repository validation errors (for an invalid `--jsrepo`, and from `repository/validate`) are now listed one per line with the location of each problem, instead of as a nested JSON tree:
+  ```
+  ✖ Invalid option: expected one of "none"|"low"|"medium"|"high"|"critical"
+    → at jquery.vulnerabilities[0].severity
+  ```
+- Positional arguments (e.g. `retire .` or `retire src/`) are still ignored, but now print a warning. Use `--path <path>` to choose what to scan.
+- Upgraded `commander` to 14 and `zod` to 4.
+
+### Bugfixes
+
+- Repository validation crashed with a `TypeError` on extractor regexes that contain `§§version§§` without a capture group (e.g. `jquery-§§version§§\.js`), instead of reporting the invalid regex. It now reports `Regex must contain (§§version§§) as first capture group`.
+
+## [6.0.0]
+
+### Breaking changes
+
+- Requires Node.js 20.19+ or 22.12+ (previously 18+).
+- `--proxy` (and the `http_proxy` environment variable) now only supports `http://` and `https://` proxy URLs. SOCKS (`socks://`, `socks5://`, ...) and PAC (`pac+http://`, ...) proxies are no longer supported and fail with an `Unsupported proxy protocol` error (let us know if socks or pac are needed and we can re-add).
+
+### Improvements
+
+- Replaced the `proxy-agent` dependency (and its 27 transitive packages) with a small built-in proxy client. Proxy credentials in the URL (`http://user:pass@host:port`) are still supported.
+- Removed the `ansi-colors` dependency.
+
+### Bugfixes
+
+- `--includeOsv` lookups ignored `--proxy`, `--insecure` and `--cacert`. They now use the same settings as the repository download.
+- `--includeOsv` looked up advisories under the repository's display name instead of the npm package name, so most components that declare an `npmname` silently got no OSV results (#626).
+- `--includeOsv` findings could be missing from the report, because the report was closed before the OSV lookups finished (#623).
+- Invalid CLI input (an unknown `--severity`, an unreadable `--cacert` or ignore file) now stops before scanning with an error message instead of a stack trace (#623).
+- Malformed repository files and malformed OSV responses are reported with their source, instead of crashing the scan (#623).
+- Errors while scanning files or `bower.json` are now reported, and the scan exits with code 1 (#623).
+- `bower.json` files were not detected on Windows paths (#623).
+- Distinct CVEs that share an issue were merged into one finding, while repeated advisories for the same vulnerability were not deduplicated (#623).
+- The upper bound of a license version range was treated as inclusive (#623).
+- CycloneDX output could change the scan results used by other reporters, and duplicate components are now merged together with their vulnerabilities and evidence (#625).
+
+## [5.7.0]
+
+### Improvements
+
+- Added CycloneDX 1.7 output: `--outputformat cyclonedxJSON1_7` and `cyclonedxJSON1_7_VEX`.
+- CycloneDX 1.7 reports every resolved license, each as its own SPDX expression. Earlier spec versions only allow a single expression per component, so 1.4/1.6 output still reports the first license only.
+- The CycloneDX 1.6 and 1.7 reports now include:
+  - `$schema`, pointing at the schema for the emitted spec version.
+  - `metadata.tools` in the object form introduced in 1.5, replacing the deprecated legacy array.
+  - `metadata.component`, describing the scanned path as the subject of the BOM.
+  - `dependencies`, linking the scan target to every detected component.
+  - `evidence.identity`, reporting how the version was detected (`filecontent`, `filename`, `hash`, `ast`, ...) as a CycloneDX identity technique and confidence.
+  - `vulnerabilities[].detail`, when the repository supplies `details` (VEX variants only).
+
+### Bugfixes
+
+- CycloneDX 1.6 output threw when a vulnerability in a custom `--jsrepo` had no `cwe`, and could throw on a vulnerability with no `identifiers`.
+
+## [5.6.0]
+
+### Improvements
+
+- Report when repository certificate errors are ignored (`--insecure`): as `ignoreRepositoryCertificateErrors` in the JSON report, and as a `retirejs:ignore-repository-certificate-errors` entry under `metadata.properties` in all CycloneDX reports. The entry is only present when the option is set.
+
+## [5.5.0]
+
+### Improvements
+
+- Include the vulnerability repositories used for the scan in the output: as `vulnerabilityRepositories` in the JSON report, and as `retirejs:vulnerability-repository` entries under `metadata.properties` in all CycloneDX reports.
+- CycloneDX 1.6 VEX output now identifies Retire.js as the source of each vulnerability and rating, including the repository URL when a single repository is used.
+
+### Bugfixes
+
+- CycloneDX 1.6 VEX output was not schema valid: `ratings[].source` was a string rather than an object, and version ranges were reported as `affects[].range` rather than nested under `affects[].versions[]`.
+
+## [5.4.3]
+
+* Remove dependencies that are not needed anymore
+
+## [5.4.2]
+
+* Fix build scripts
+
+## [5.4.1]
+
+* Upgrade dependencies
+
+## [5.4.0]
+
+### Improvements
+
+- Add possibility to exclude specific versions for a vulnerability (example: jquery-1.12.4-aem which has some extra patches).
+
+## [5.3.0]
+
+### Improvement
+
+- Add cyclonedxJSON1_6_VEX as output format for CycloneDX 1.6 with vulnerability information
+
+## [5.2.8]
+
+### Bugfix
+
+- ignorefile cli argument was not working
+
+## [5.2.7]
+
+### Performance fix
+
+- Upgrade to ASTronomical 2.0.0 to reduce memory usage
+
+## [5.2.6]
+
+### Bugfix
+
+- Don't crash on invalid code when using deep scan
+
+## [5.2.5]
+
+### Bugfix
+
+- CLI argument `--ext` was not working
+
+## [5.2.4]
+
+### Bugfix
+
+- Fix name vs group for scoped components in CycloneDX output
+
+## [5.2.3]
+
+### Bugfix
+
+- Fix license handling for complex licenses
+
+## [5.2.2]
+
+### Bugfix
+
+- Encode purls correctly in SBOM
+
+## [5.2.1]
+
+### Bugfix
+
+- Add missing CWEs in response
+
+## [5.2.0]
+
+### Enhancement
+
+- Add license information to SBOM
+
+## [5.1.4]
+
+### Bugfix
+
+- Fix bug where deepScan would sometimes not report vulnerabilities
+
+## [5.1.3]
+
+### Bugfix
+
+- Use URI detector on file paths as well
+
+## [5.1.2]
+
+### Bugfix
+
+- JSON format should not include results without vulnerabilities unless `--verbose` is specified.
+
+## [5.1.1]
+
+### Bugfix
+
+- Remove duplicates in filename output in CycloneDX JSON formats
+
+## [5.1.0]
+
+### Add
+
+- Support for CycloneDX 1.6 JSON as output format
+- Adding file location as property in CycloneDX 1.4 JSON output
+
+## [5.0.1]
+
+### Fix
+
+- Fix filename issue for windows file paths
+
+## [5.0.0]
+
+No changes. Just moving from beta to final.
+
+## [5.0.0-beta.1]
+
+### Added
+
+- Deepscan option with `--deep` where retire.js will also try to detect libraries using JavaScript AST (slower)
+
+## [4.4.2]
+
+### Fix
+
+- Fix matching to include all matches
+
+## [4.4.1]
+
+### Chore
+
+- Dependency upgrades
+
+## [4.4.0]
+
+### Added
+
+- Adding proper repository validation to ensure it's on the expected format
+
+## [4.3.4]
+
+### Bugfix
+
+- Bug: `--jspath` is not being honoured
+
+## [4.3.3]
+
+### Bugfix
+
+- Fixes #420 where ignore was not honoured
+
+## [4.3.2]
+
+### Bugfix
+
+- Types did not work for `lib/retire.js` due to symlinked type file
+
+## [4.3.1]
+
+### Bugfix
+
+- Should always include detected libraries in SBOM reports regardless of if they are vulnerable or not
+
+## [4.3.0]
+
+### Changes
+
+- Support basePurl in repository to generate purls in SBOM
+
+## [4.2.3]
+
+### Bugfix
+
+- Generate correct purl for moment.js
+
+## [4.2.2]
+
+### Bugfix
+
+- Proxy setting did not work
+
+## [4.2.1]
+
+### Changes
+
+- Fix provenance settings
+
+## [4.2.0]
+
+### Changes
+
+- Use prettier to get formatting of code
+- Add provenance
+
+## Security fixes
+
+- Upgrade dependencies
+
+## [4.1.1]
+
+### Bugfixes
+
+- Handle error if OSV does not have library or version
+
+## [4.1.0]
+
+### Additions
+
+- Option to check results for the component from OSV
+- Option to use more than one JS repository
+
+### Bugfixes
+
+- Remove dropexternal as it never worked
+
+## [4.0.1]
+
+### Breaking changes
+
+- Not really a breaking change as the change was introduced in 4.0.0, but node.js >= 14.0.0 is required to run retire.js >= 4.0.0 going forward
+
+## [4.0.0]
+
+### Breaking changes
+
+- npm scanning no longer supported
+
+### Changes
+
+- Complete rewrite to typescript
+
+## [3.2.3]
+
+- Fix caching bug in CycloneDX JSON output
+
+## [3.2.2]
+
+- Fix bug in CycloneDX JSON output (wrapped components array)
+
+## [3.2.1]
+
+- Remove unintended use of arrow functions
+
+## [3.2.0]
+
+- Add `--ext` to allow specifying other file extensions
+
+## [3.1.3]
+
+- Fixes a typo
+
+## [3.1.2]
+
+- Remove some unused variables and tmp files
+
+## [3.1.1]
+
+- Update VM2 due to vuln in that library
+
+## [3.1.0]
+
+- Adding support for cycloneDX JSON format
+- Updating CycloneDX XML format to version 1.4
+- Adding schema parsing tests for cyclonedx
+
+## [3.0.7]
+
+### Fixes
+
+- Updating proxy library to fix proxy issues
+
+## [3.0.6]
+
+### Security
+
+- Switch the `colors` package with `ansi-colors`
+
+## [3.0.4] / [3.0.5]
+
+### Security
+
+- Pin colors dependency to avoid DOS from colors author
+
+## [3.0.3]
+
+### Bug
+
+- Fix version number
+
+## [3.0.2]
+
+### Dependency update
+
+- always output JSON to stdout, to avoid conflict with deprecation warning
+
+## [3.0.1]
+
+### Dependency update
+
+- glob-parent, lodash and hosted-git-info had vulnerabilities and was updated
+
+## [3.0.0]
+
+### Deprecation notice
+
+- The node scanner is deprecated: https://github.com/RetireJS/retire.js/wiki/Deprecating-the-node.js-scanner
+
+## [2.2.5]
+
+### Dependency update
+
+- y18n had a vulnerability and was updated
+
+## [2.2.4]
+
+### Bugfix
+
+- Fixes [#343](https://github.com/RetireJS/retire.js/pull/343) where symlink to nonexistent file causes it to crash with exception. Now it will log it as warn instead.
+
+## [2.2.3]
+
+### Bugfix
+
+- Fixes [#337](https://github.com/RetireJS/retire.js/issues/337) where symlinks are not read
+
+## [2.2.2]
+
+### Bugfix
+
+- Fixes [#334](https://github.com/RetireJS/retire.js/issues/334) where detected libraries without vulnerabilities show in output even when verbose is not specified
+
+## [2.2.1]
+
+### Bugfix
+
+- Fixes [#321](https://github.com/RetireJS/retire.js/issues/321) where write output to file did not always work as expected
+
+## [2.2.0]
+
+### Added
+
+- Support `--cacert <path>` or `--insecure` when loading the repos (thanks to [adamcohen](https://github.com/adamcohen)) [PR#322](https://github.com/RetireJS/retire.js/pull/322)
+
+## [2.1.1] - 2020-03-20
+
+### Bugfix
+
+- Fix compatibility with node 6
+
+## [2.1.1] - 2020-03-16
+
+### Modified
+
+- Remove `request` as it is deprecated
+
+## [2.1.0] - 2020-03-16
+
+### Modified
+
+- Support ** and \* in ignore paths (** = any number of folders)
