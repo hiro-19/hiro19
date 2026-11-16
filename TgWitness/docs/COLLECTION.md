@@ -1,0 +1,414 @@
+[TgWitness](../README.md) / [Documentation](README.md) · [Collection](COLLECTION-MODES.md)
+
+![Collection](assets/presentation/chapter-collect.svg)
+
+# How collection works
+
+TgWitness records what a connected Telegram account observes. Live monitoring
+preserves messages, captured edits, deletion notifications and attachments with
+their observation times and source context. History reads, rechecks and available
+admin-log records add separately identified observations to that record.
+
+<details>
+<summary>On this page</summary>
+
+- [From login to a journal](#from-login-to-a-journal)
+- [Observation scope: chosen chats, a folder or the whole account](#observation-scope-chosen-chats-a-folder-or-the-whole-account)
+- [Scope and event selection](#scope-and-event-selection)
+- [Own actions](#own-actions)
+- [Investigation mode: joining teams and talking to bots](#investigation-mode-joining-teams-and-talking-to-bots)
+- [Recheck tiers](#recheck-tiers)
+- [Message history and attribution](#message-history-and-attribution)
+- [History snapshots](#history-snapshots)
+- [Attachment handling](#attachment-handling)
+- [Pause, lock, disconnect, and restart](#pause-lock-disconnect-and-restart)
+- [Account isolation and verification](#account-isolation-and-verification)
+
+</details>
+
+## From login to a journal
+
+For self-destructing photos and files, see [Self-destructing media](EPHEMERAL-MEDIA.md).
+It explains the priority worker, saved and unavailable outcomes, and the limits of
+read-receipt blocking in the API collector.
+
+```mermaid
+flowchart TD
+    A[Authorize a user account] --> B[Select accessible groups and channels]
+    B --> C[Save event and attachment settings]
+    C --> D[Start observation]
+    D --> E[Receive updates from the active client]
+    E --> F[Apply source and event policy]
+    F --> G[Append a signed observation]
+    G --> H[Review or export the journal]
+    G --> I[Process any queued attachment]
+    I --> J[Append the download outcome]
+```
+
+Authorization, access to a source, a running collector, and complete delivery are
+different questions. A successful login does not grant access to every group.
+Delivery is tracked separately: coverage records, update-gap recovery and rechecks
+show what arrived.
+
+## Observation scope: chosen chats, a folder or the whole account
+
+**More tools → Sources → Scope** decides which chats a workspace records.
+
+New setup starts with **Choose chats**. Existing saved choices are retained. Choosing
+**All chats** in the setup wizard asks for confirmation when the loaded list contains
+more than 50 chats; the size estimate remains a separate, sample-based operation.
+
+| Mode | Records | New chats |
+| --- | --- | --- |
+| Chosen chats (default) | Only the chats you add by hand | Never added automatically |
+| Telegram folder | Chats in one of the account's folders: chats included by name, plus the folder's categories (contacts, non-contacts, groups, channels, bots), minus its excluded chats and, if the folder says so, archived chats | Matching chats are added as soon as they become active; chats you add to the folder in Telegram are picked up within an hour |
+| Whole account | Every chat the account sees | Every new chat, group, private chat or bot is added the moment its first update arrives |
+
+- **Source types** (channels, groups, private chats, bots) narrow the folder and
+  whole-account modes. Chosen chats can be of any type, including private chats and bots.
+- **Excluded chats** are never recorded, in any mode. In folder and whole-account modes,
+  *Exclude* and *Remove* on a source put it on this list, so the scope does not add it again.
+  Choosing the chat again by hand (in Sources or from Chats) takes it off the list. The list
+  holds up to 5,000 chats; past that, *Remove* is refused and the chat can be paused instead.
+- **Own actions** (on by default): messages this account sends, its edits and its
+  reply-keyboard button presses. Turned off, outgoing messages and edits are skipped.
+- Switching to a folder or the whole account asks for confirmation: these modes record
+  private chats and messages of third parties and belong on a dedicated account only.
+  The confirmation and every scope change are signed `scope.changed` records.
+- Chats added by the scope appear as sources marked *auto*, recorded as `scope.applied`
+  (at start and hourly) or `source.discovered` (a new chat while observing). Switching back
+  to chosen chats pauses every automatically added source.
+
+Scope of these modes:
+
+- **Secret Chats** use the included [Pseudo-secret integration](PSEUDO-SECRET.md),
+  with a protocol module installed from the panel and a per-account enable switch. Cloud history
+  and Takeout use a separate acquisition path.
+- **Offline periods.** After a restart TgWitness resumes the saved update position, asks
+  Telegram for missed updates and rechecks chats. Telegram keeps a bounded backlog, so after
+  a long outage reports and `verify.py` list the remaining interval as a gap (see [coverage](EVIDENCE.md#coverage-continuity-gaps-and-unobserved-ids)).
+- Only the first 1,000 dialogs are listed at start (the limit is under **More tools → Parameters**); older
+  chats are added when they next become active. The earlier history of an added chat is not fetched — take a history
+  snapshot or a full chat export when you need it.
+- Folder conditions that change all the time (muted, read) are not applied: such chats
+  stay observed.
+- **Inline (callback) bot buttons** pressed in another app are invisible to a second
+  session; the bot's reply or edit is recorded. Reply-keyboard presses arrive as outgoing
+  messages and are labeled `button_press`.
+- More chats mean more requests. Telegram restricts accounts for volume it considers
+  excessive, which is one more reason to use dedicated accounts.
+
+## Scope and event selection
+
+Each workspace has its own sources. TgWitness does not join groups, accept
+invitations, or enumerate every member automatically. Sources must already be
+accessible to the account. At startup, the collector checks selected sources
+against the account's visible dialogs; the first 1,000 dialogs are inspected unless
+**More tools → Parameters → Chats read from the account's list** says otherwise.
+An absent source is marked **access unconfirmed**, not assumed to have removed you.
+
+| Setting | Collects | Effect when disabled |
+| --- | --- | --- |
+| New messages | Ordinary delivered messages | Later edits/deletions may have no earlier captured text to compare. |
+| Edits | Delivered edited message versions | Intermediate changes are not reconstructed later. |
+| Deletions | Scoped deletion notices and unscoped account-level notices | Deletion notices are not added to the journal. |
+| Reactions | Delivered reaction snapshots | Separate reaction updates are not added. |
+| Membership | Delivered membership service messages and participant updates | Those membership observations are not added. |
+
+Settings apply to all selected sources in the workspace. Save the form to apply
+changes; changes are recorded with signed before/after values. Disabling a category
+does not remove earlier records. Re-enabling it does not backfill missed updates.
+
+Operational records and other group service events remain separate from these
+switches. Membership service messages can create message records when membership
+is enabled even if ordinary new-message capture is disabled. Captured Telegram
+objects retain embedded metadata; a switch is not a redaction rule.
+
+**Deletions in private chats and ordinary groups** arrive as message IDs without a chat.
+These chats share one account-wide message ID sequence, so when a message with that ID was
+saved earlier, its chat is known: the deletion is recorded in that chat with
+`chat_resolution` explaining how. IDs never saved stay an **unscoped deletion** with an
+explicit unresolved chat. These are Telegram deletion notifications, preserved even
+when their chat cannot yet be correlated. The notification's schema contains IDs;
+the journal adds reception time and any saved message context, including
+`deleted_message_was_outgoing`. Available admin-log entries provide a separate
+source of the action, actor and source time.
+
+## Own actions
+
+Messages sent by the observed account are labeled `outgoing`. An edit of an outgoing
+message notes that in private chats and groups only its author can edit it, while channel
+posts can be edited by other admins. When an outgoing message repeats the text of a button
+from the newest saved reply keyboard in that chat, it carries `button_press` with a link to
+the keyboard's record.
+
+Excluding own actions also applies to background rechecks and automatic new-chat history.
+Skipped outgoing messages advance the recheck position so they cannot block later incoming
+messages. Explicit panel actions and manually requested history snapshots remain recorded.
+
+## Investigation mode: joining teams and talking to bots
+
+**More tools → Sources → Scope → Investigation mode** prepares the scope for a dedicated
+account that joins team chats, starts bots and writes to them: the whole account, every
+source type, own actions, and for every chat or bot that appears its profile and its latest
+200 visible messages. Review the form and press **Save scope**; the switch to the whole
+account asks for the usual confirmation.
+
+- **Buttons.** Buttons under a message are kept with it and shown in **Chats**: links, web
+  apps, login links, texts to copy, callback data, inline queries, requests for a phone
+  number or location. Links are shown as text and never opened by the panel. When a bot
+  changes only the buttons (a new payment link), that is a new version of the message, both
+  from live updates and from rechecks.
+- **New chats and bots.** In folder and whole-account modes, **When a new chat or bot
+  appears** saves, right after it appears:
+  - its profile as a `source.profile` record: bot description and commands, the about text
+    of a user, group or channel, members, linked chat and invite link when Telegram returns
+    one;
+  - its latest visible messages (up to 1,000) as a history snapshot marked `new_chat`: the
+    earlier messages of a team chat just joined, or what a bot said before observation
+    noticed the chat. Messages already saved live are not repeated.
+
+  Newly selected chats use these settings when the scope is applied, including chats
+  already present in the account's dialog list. Initial profile and history loading
+  runs for up to three chats concurrently; work for the same chat stays in order.
+  Each history/profile stage uses the configured operation timeout, so stalled requests
+  release their worker. History is saved before the optional profile read; a profile
+  failure does not prevent that history capture. Failed stages retry after 5 seconds,
+  doubling to a maximum of 5 minutes without occupying a worker during the delay.
+  Pending IDs, retry deadlines and completed stages are saved locally. A restart resumes
+  only unfinished stages; a profile retry does not repeat a completed history read.
+  Sources disabled before their turn are skipped. The overview shows active, pending
+  and retrying chat loads separately from attachment downloads.
+  A FloodWait pauses this work and it resumes afterwards; failures are recorded and live
+  recording of the chat continues. This includes waits while resolving the new chat's
+  identity: the pending profile/history task is retained for retry, and an existing
+  longer account-wide wait is not shortened. The workers share this wait; concurrency
+  does not bypass Telegram's request limits.
+- **Profiles on request.** **Chats → Profile → Save profile now** saves the current profile
+  of any source; the newest one is shown above the messages.
+- **Chat state snapshots (preview).** State outside the message stream changes without a
+  message: unpinning every message leaves no message-level trace, an administrator loses
+  rights, a gift is hidden, converted, upgraded or refunded. While observing, every enabled
+  source is read periodically and saved as a signed `chat.state` record: title, usernames,
+  description, member and administrator counts, linked chat, slow mode, pinned message IDs
+  (up to 100), administrators with their rights and titles, and gifts shown on channels and
+  user profiles (up to 100). Each record lists the differences from the previous snapshot:
+  changed fields with before and after, pinned messages added or removed, administrators and
+  gifts added, changed or no longer listed.
+  - A part Telegram refuses (for example the administrator list of a channel for a member
+    who is not an administrator) is named in `errors`; its earlier value is kept and listed
+    in `carried_forward`, never reported as removed.
+  - A record whose only changes are counts, and a check that found no change, refer to the
+    last full state with `state_seq` and cumulative `state_overrides`. A full state is written at
+    least every seven days and whenever anything other than a count changes.
+  - `parts_complete` marks capped lists. Additions require a complete earlier list,
+    removals require a complete current list, and explicit empty values record clearing.
+  - **More tools → Parameters → Chat state** sets the interval (12 hours by default, 0 turns snapshots
+    off), the pause between sources, which parts are read, and whether checks that found no
+    change are recorded. `FLOOD_WAIT` and `FLOOD_PREMIUM_WAIT` stop the remaining
+    snapshot requests, preserve any longer account-wide deadline, and leave the
+    interrupted chat eligible for another attempt after that wait.
+- **Not visible.** Inline (callback) buttons pressed in another Telegram app, the popup or
+  link a bot answers such a press with, and invite links used in another app do not reach
+  TgWitness. What the bot sends or edits afterwards is recorded.
+
+### Act from the panel
+
+**Chats** now includes a mini-client using the selected workspace's Telegram account:
+
+- Write a plain-text message or choose **Reply** under a saved message. The returned outgoing
+  message is recorded even when the scope excludes outgoing updates.
+- Press **Press button** under a current callback or text button. The server fetches the
+  message again and refuses the action if the keyboard differs from the saved version.
+  Callback receipts retain Telegram's popup text, alert flag and URL; the answer is also shown
+  below the conversation. URLs remain selectable text and are not opened automatically.
+- Expand **Open Telegram link**, enter `@username`, a public `https://t.me/name` link,
+  `https://t.me/+invite` / `joinchat/invite`, or a bot link with `?start=parameter`, and press
+  **Save preview**. The original link and Telegram's preview are signed before joining.
+  **Join / open and observe** then joins the group/channel or opens the user/bot, adds the
+  chat as an enabled source, and sends `/start` to a bot, including its start parameter.
+  A join request awaiting administrator approval is recorded as pending, not as membership.
+
+Turn on **Start observation** to capture incoming replies live. Panel actions work while
+observation is paused; the panel then saves their direct responses, and live
+observation captures the rest of the conversation.
+Newly added sources use the configured profile/history intake when observation is running.
+When a source is paused, enable it in **More tools → Sources** before sending or pressing its buttons.
+
+`interaction.preview`, `interaction.requested` and `interaction.result` are ordinary signed
+journal events included in evidence exports. Requests identify the account, message/button
+or preview record and whether observation was running. Receipts distinguish success,
+rejection, approval pending and an unknown outcome. An interrupted request may have reached
+Telegram: check the chat before starting a new action. Reusing a request ID retrieves its
+saved receipt without repeating the action, including after restart. The panel retains the
+ID after an ambiguous response for the same action during the current page session.
+It also retains that ID when refreshing the view fails after a successful action: the receipt
+stays visible, and clicking again retrieves it. Callback and join RPCs have one application
+attempt; retryable reads keep their configured retry policy. Switching chats immediately
+clears the draft and reply target and disables sending until the new conversation loads.
+
+This mini-client handles text and callback buttons. Web apps, login/phone/location requests,
+payments, inline queries and attachments still require a Telegram client; their saved button
+metadata remains visible. The new controls use English text.
+
+## Recheck tiers
+
+Rechecks ask Telegram again for missed messages, edits and messages it no longer returns.
+Sources marked with a star are **priority** sources, rechecked every 15 minutes by default;
+all other sources every 6 hours. Chosen chats start as priority sources, chats added by a
+folder or the whole account as regular ones. At most 30 sources are rechecked per pass and
+the rest wait for the next minute; after a reconnect, priority sources go first. Both
+intervals are set under **More tools → Sources → Recording → Recheck** (0 turns a tier off) and are
+recorded as `recheck.changed`.
+
+Missed messages are fetched upward from where the previous pass stopped, at most
+**More tools → Parameters → Missed messages recovered per chat and pass** (1,000 by default). After a long stop the
+recheck therefore fills the whole gap, even when live messages newer than the gap were saved
+first. A chat that is still catching up is rechecked again on the next minute instead of
+waiting for its tier interval; `recheck.completed` shows `continues_after` until it is done.
+
+Comparisons include message text, entities, keyboards (including removal), and attachment
+content/identity. Changing file access hashes or file references alone does not create an
+edit, nor does what Telegram fills in on its own: a link preview loading, story views, paid
+media unlocked by this account, an invoice's receipt. Each saved version in Chats links to its full journal record, including media metadata.
+
+## Message history and attribution
+
+Suppose the collector observes “Meeting at 10:00,” later sees “Meeting at 11:00,”
+and then receives a deletion notice. It appends three distinct observations. The
+original text remains, the edit is a separate version, and the notice records that
+a deletion was observed.
+
+If collection began after the first version disappeared, that text is unavailable.
+If several edits occurred while the process was offline, only subsequently observed
+versions can be saved. A deletion notice cannot recover content never captured.
+
+The record combines several sources:
+
+| Source | Preserved information |
+| --- | --- |
+| Live message or edit update | Message ID, sender metadata, captured version, reception time and supplied Telegram message/edit date. |
+| Live deletion notification | Reported message IDs, reception time, raw notification and links to previously saved content. |
+| Available admin log | Action, actor, source date and supplied message content, read by an account with the required rights. |
+| Panel interaction | The requested action and its recorded outcome under the selected account. |
+| Recheck | Telegram's current response compared with the previously saved message. |
+
+`observed_at` is the time the record was written on the collector clock and
+increases with `seq`. Records written while handling a live update also carry
+`received_at`, the time the update reached the collector, and
+`processing_delay_ms`, the time from reception to writing; updates held while
+observation starts are processed in arrival order before later ones. `source_at`
+retains a source date where that event supplies one. Telegram clock-offset observations,
+clock-discontinuity records and [external time checks](TIMESTAMP.md) provide the
+associated timing context. An ordinary message notification's fields describe
+that notification; admin-log and interaction records retain their own attribution.
+
+## History snapshots
+
+A snapshot requests the latest visible messages from an enabled source, up to
+500 per request. Results are labeled as history observations. Manual snapshots
+run alongside observation. Repeated observations
+are kept as separate records.
+
+Snapshots stop if the source is disabled during the read. Replies must belong to the
+requested chat and contain strictly decreasing positive message IDs below the requested
+boundary. An invalid reply interrupts the snapshot before that message is saved;
+already preserved messages remain in the signed journal with the interruption record.
+
+Snapshots follow the attachment policy but remain separate from live-event switches.
+They do not reconstruct deleted messages or missed intermediate versions. You can
+request one while paused; any attachments it queues wait until observation starts
+and the download worker runs.
+
+The **History** run is a separate exclusive task: it reads selected sources and
+downloads their queued attachments sequentially without starting monitoring.
+Pause releases the account; resume continues the saved run. For date, language
+and reply filters across several idle accounts, see [Distributed chat export](DISTRIBUTED-EXPORT.md).
+
+## Attachment handling
+
+Attachment download is on by default and pauses below 1 GiB of free disk. The collector commits the
+message observation and download job together. The job retains the original media
+descriptor and size policy, so a later edited attachment is not silently substituted.
+
+Downloads run after message capture. A completed download creates a `media.saved`
+record with its SHA-256 and byte count. Skipped, failed, retried, and interrupted
+work has separate outcomes; a file counts as preserved when its `media.saved` record exists.
+The completed file must also match the byte count in the original observed attachment
+descriptor. A short or unexpectedly long response is not recorded as preserved media.
+
+Within one workspace, concurrent queued jobs for the same attachment representation
+wait for the active transfer, then recheck its saved bytes before reuse. Each job keeps
+its own signed outcome and reference to the earlier saved-file record. Cancelling a
+waiting job does not cancel the active transfer; if that transfer fails or is cancelled,
+the next job can try again. Different attachments can download concurrently.
+
+Jobs with the same account, representation, expected size and capture action stay
+queued while one matching job is running. They do not occupy download slots, so
+other files can start even when the queue begins with many copies of one slow file.
+Completing an attempt wakes the queue. Priority lanes, saved retry delays and
+history ownership still apply; each observation receives its own outcome.
+
+Chat exports also share an active transfer for repeated file representations within
+the same export directory. Each message retains its attachment reference, and reuse
+requires a fresh size and SHA-256 check. Different files can be checked in parallel
+without holding a common transfer lock. Temporary download and copy paths are unique
+to each operation; cancellation waits for any active local file reader before cleanup.
+The export file index serializes only metadata access, not file hashing or downloads.
+
+Server-hash reads for different attachments also run concurrently, sharing the client's
+three file-request slots with byte downloads. Repeated reads of the same representation
+reuse only a complete cached result. File reads leave the ordinary request queue free;
+saved FloodWait deadlines are checked again when a request gets a slot.
+
+Limits are set **per type**: photos, videos, GIFs and animations, round video messages,
+voice messages, music and audio, stickers, and files. Each type can be turned off and has
+its own size limit from 1 to 2,000 MiB; new workspaces start with 20 MiB for photos,
+100 MiB for videos, 50 MiB for files, audio and round videos, 20 MiB for voice and GIFs and
+5 MiB for stickers. New workspaces leave GIFs and stickers off until turned on. Workspaces
+with policies saved before per-type limits keep all types enabled and retain their single
+limit for every type. *Maximum file size* sets every type at once. A type turned off produces
+a `media.skipped` record; unknown-size or oversized files are not downloaded. Large files get
+extra download time based on their size and a baseline speed of 256 KiB/s. Jobs survive
+restart, but expired references, lost access, or deleted files can still prevent recovery.
+Waiting jobs keep the limit saved with them, so a raised limit applies to new files only.
+Turning a type off or lowering its limit also skips the waiting files it excludes, each with
+a `media.skipped` record; turning downloads off pauses the queue until they are turned on again.
+
+## Pause, lock, disconnect, and restart
+
+| Action or condition | Effect |
+| --- | --- |
+| Switch workspace | Changes the panel view; other collectors keep their state. |
+| Lock the panel or close a tab | Leaves the server and observation running. |
+| Pause observation | Stops that collector and preserves queued attachment work. |
+| Disable a source | Stops future scoped capture; queued media jobs for it wait while it is disabled. |
+| Remove a source | Forgets it as a source and deletes its people profiles; records already saved stay in the append-only journal. Its attachments still waiting are recorded as failed (`source_removed`). In folder and whole-account modes it is also excluded. |
+| Change the connection route | Requires a pause, closes old clients, and cancels unfinished login. |
+| Stop the Python process | Stops all workspaces; no observations are made while it is offline. |
+| Restart after active observation | Attempts to resume the saved scope using the saved session. A manual pause clears that intent. |
+
+The collector records detected disconnects, retries, errors, starts/stops, and
+heartbeats. Short interruptions can be missed by periodic connectivity checks.
+After a restart, missed updates are requested from the saved update position and
+observed chats are rechecked periodically; see [evidence format](EVIDENCE.md#durable-collection-and-process-receipts-02). A snapshot adds the current state
+as context, and the gap stays recorded.
+
+## Account isolation and verification
+
+Each workspace has its own journal, authorization, signing key, policy, and queue.
+Only its active client can contribute live observations. Rejected, pending,
+superseded, and connection-test clients cannot write live updates into its journal.
+Different accounts can observe the same group, but their journals remain separate.
+
+Each event includes the previous hash and an Ed25519 signature. Exports cover the
+whole workspace journal through a fixed sequence number. Panel filters do not filter
+the export; collection may continue beyond its boundary while it is being prepared.
+
+**Verify journal** checks the event chain and signatures through the displayed
+boundary. Its result is cleared when the workspace changes, and the panel identifies
+new records added after the check. ZIP export also verifies collected media.
+
+Retain fingerprints and checkpoints independently. See the
+[verification scope](EVIDENCE.md#verification-scope) for acquisition checks in each mode,
+and [daily operations](OPERATIONS.md) for routine collection.

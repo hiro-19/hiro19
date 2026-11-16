@@ -1,0 +1,799 @@
+import hashlib
+import ipaddress
+import logging
+import os
+import re
+import secrets
+import sys
+import threading
+import time
+from collections import deque
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from typing import Callable, Literal
+
+from pydantic import BaseModel, Field, StrictBool, field_validator, model_validator
+
+from .store import utcnow
+from .operator_privacy import private_log
+
+LOG = logging.getLogger("tgwitness.access")
+JOURNAL_LOG = logging.getLogger("tgwitness.journal")
+
+PERMISSIONS = ("view", "export", "sources", "collect", "interact", "settings", "account", "board.read", "board.write", "board.manage")
+ADMIN_DEFAULTS = {"max_sessions": 0, "on_limit": "replace", "session_minutes": 720}
+WORKSPACE_ID = re.compile(r"default|[a-f0-9]{32}")
+GROUP_ID = re.compile(r"[a-f0-9]{32}")
+
+
+POLICY = {
+    "GET /api/history-forward": None,
+    "POST /api/history-forward/plan": None,
+    "POST /api/history-forward/start": None,
+    "POST /api/history-forward/{job_id}/{action}": None,
+    "GET /api/capture": ("settings", None),
+    "POST /api/capture/{kind}/connection": ("settings", None),
+    "GET /api/capture/{kind}/status": ("settings", None),
+    "GET /api/capture/{kind}/targets": ("settings", None),
+    "GET /api/capture/{kind}/events": ("settings", None),
+    "GET /api/capture/{kind}/checkpoint": ("settings", None),
+    "POST /api/capture/{kind}/target": ("settings", None),
+    "POST /api/capture/{kind}/settings": ("settings", None),
+    "POST /api/capture/{kind}/snapshot": ("settings", None),
+    "POST /api/capture/{kind}/export": ("settings", None),
+    "POST /api/capture/{kind}/open": ("settings", None),
+    "GET /api/capture/{kind}/object/{sha256}": ("settings", None),
+    "GET /api/extensions": ("view", "filter"),
+    "GET /api/webapp": ("view", "filter"),
+    "POST /api/search/record": ("view", "body"),
+    "POST /api/subjects/{chat_id}/snapshot": ("collect", "path"),
+    "GET /api/continuity": ("view", "filter"),
+    "GET /api/watchlists": ("view", "filter"),
+    "POST /api/watchlists": ("settings", "body"),
+    "PUT /api/watchlists/{list_id}": ("settings", "body"),
+    "DELETE /api/watchlists/{list_id}": ("settings", "body"),
+    "POST /api/watchlists/{list_id}/entries": ("settings", "body"),
+    "POST /api/watchlists/{list_id}/import": ("settings", "body"),
+    "GET /api/watchlists/{list_id}/export": ("export", "body"),
+    "DELETE /api/watchlists/{list_id}/entries/{entry_id}": ("settings", "body"),
+    "GET /api/watchlists/hits": ("view", "filter"),
+    "POST /api/watchlists/scan": ("view", "filter"),
+    "GET /api/qr": ("view", "body"),
+    "POST /api/qr/scan": ("view", "body"),
+    "GET /api/presence": ("view", None),
+    "GET /api/presence/pattern": ("view", None),
+    "POST /api/presence/check": ("collect", None),
+    "POST /api/presence/settings": ("settings", None),
+    "POST /api/presence/watches": ("collect", None),
+    "PUT /api/presence/watches/{ident}": ("collect", None),
+    "DELETE /api/presence/watches/{ident}": ("collect", None),
+    "GET /api/undercover": ("account", None),
+    "POST /api/undercover/personas": ("account", None),
+    "PUT /api/undercover/personas/{ident}": ("account", None),
+    "POST /api/undercover/authorisations": ("account", None),
+    "PUT /api/undercover/authorisations/{ident}": ("account", None),
+    "POST /api/undercover/authorisations/{ident}/withdraw": ("account", None),
+    "GET /api/translations": ("view", "body"),
+    "GET /api/translations/languages": ("view", "body"),
+    "POST /api/translations/preview": ("view", "body"),
+    "POST /api/translations": ("view", "body"),
+    "GET /api/conversation": ("interact", "filter"),
+    "POST /api/conversation": ("interact", "body"),
+    "GET /api/conversation/{plan_id}": ("interact", "body"),
+    "PUT /api/conversation/{plan_id}": ("interact", "body"),
+    "DELETE /api/conversation/{plan_id}": ("interact", "body"),
+    "POST /api/conversation/{plan_id}/goals": ("interact", "body"),
+    "PUT /api/conversation/{plan_id}/goals/{goal_id}": ("interact", "body"),
+    "DELETE /api/conversation/{plan_id}/goals/{goal_id}": ("interact", "body"),
+    "POST /api/conversation/{plan_id}/steps": ("interact", "body"),
+    "PUT /api/conversation/{plan_id}/steps/{step_id}": ("interact", "body"),
+    "POST /api/conversation/{plan_id}/steps/{step_id}/move": ("interact", "body"),
+    "DELETE /api/conversation/{plan_id}/steps/{step_id}": ("interact", "body"),
+    "POST /api/conversation/{plan_id}/assist/preview": ("interact", "body"),
+    "POST /api/conversation/{plan_id}/assist": ("interact", "body"),
+    "GET /api/account/profile": ("account", None),
+    "POST /api/account/profile": ("account", None),
+    "POST /api/account/privacy": ("account", None),
+    "POST /api/account/avatar": ("account", None),
+    "DELETE /api/account/avatar": ("account", None),
+    "GET /api/account/avatar": ("account", None),
+    "POST /api/account/global-privacy": ("account", None),
+    "GET /api/opsec": ("account", None),
+    "POST /api/opsec/check": ("account", None),
+    "POST /api/opsec/settings": ("settings", None),
+    "GET /api/protocol": ("view", "filter"),
+    "GET /api/protocol.html": ("view", "filter"),
+    "GET /api/documentation": ("board.read", "filter"),
+    "POST /api/documentation": ("board.write", "body"),
+    "GET /api/documentation/{session_id}": ("board.read", "body"),
+    "GET /api/documentation/{session_id}/document.{suffix}": ("board.read", "body"),
+    "GET /api/documentation/{session_id}/keys.json": ("board.manage", "body"),
+    "GET /api/documentation/{session_id}/package.zip": ("board.read", "body"),
+    "POST /api/documentation/{session_id}/package": ("board.read", "body"),
+    "PUT /api/documentation/{session_id}/appearance": ("board.write", "body"),
+    "POST /api/documentation/{session_id}/{action}": ("board.write", "body"),
+    "DELETE /api/documentation/{session_id}": ("board.write", "body"),
+    "POST /api/documentation/{session_id}/marks/new": ("board.write", "body"),
+    "PUT /api/documentation/{session_id}/marks/{mark_id}": ("board.write", "body"),
+    "DELETE /api/documentation/{session_id}/marks/{mark_id}": ("board.write", "body"),
+    "GET /api/board": ("board.read", "filter"),
+    "GET /api/board/card/{identifier}": ("board.read", "body"),
+    "GET /api/board/card/{identifier}/participants": ("board.read", "body"),
+    "GET /api/board/slice/{identifier}/records": ("board.read", "body"),
+    "GET /api/board/slice/{identifier}/export": ("board.read", "body"),
+    "GET /api/board/export": ("board.read", "body"),
+    "POST /api/board/slice-preview": ("board.read", "body"),
+    "POST /api/board/{action}": ("board.write", "body"),
+    "GET /api/showcase": ("showcase", "root"),
+    "GET /api/showcase/{workspace_id}": ("showcase", "root"),
+    "GET /api/showcase/{workspace_id}/chats/{chat_id}": ("showcase", "root"),
+    "POST /api/auth/import/preview": ("account", None),
+    "GET /api/exports/{export_id}/download": ("export", None),
+    "POST /api/exports/{export_id}/ticket": ("export", None),
+    "GET /api/exports/{export_id}/external-signatures": ("export", None),
+    "POST /api/exports/{export_id}/external-signatures/request": ("export", None),
+    "POST /api/exports/{export_id}/external-signatures/ticket": ("export", None),
+    "GET /api/exports/{export_id}/external-signatures/download": ("export", None),
+    "POST /api/exports/{export_id}/external-signatures/{number}": ("export", None),
+    "POST /api/exports/{export_id}/external-signatures/{number}/check": ("export", None),
+    "POST /api/privacy/reveal": ("view", "body"),
+    "GET /api/services/notifications": ("settings", None),
+    "POST /api/analysis/context-export": ("export", "root"),
+    "GET /api/preferences": ("view", "filter"),
+    "POST /api/preferences": ("view", "filter"),
+    "GET /api/analysis/provider": ("view", "root"),
+    "GET /api/analysis/media": ("view", "root"),
+    "POST /api/analysis/media": ("view", "root"),
+    "GET /api/analysis/media/{job_id}": ("view", "root"),
+    "POST /api/analysis/media/{job_id}/{action}": ("view", "root"),
+    "POST /api/analysis/preview": ("view", "root"),
+    "POST /api/analysis/context": ("view", "root"),
+    "POST /api/analysis/generate": ("view", "root"),
+    "GET /api/analysis/reports": ("view", "root"),
+    "POST /api/analysis/reports": ("view", "root"),
+    "GET /api/analysis/reports/{report_id}": ("view", "root"),
+    "PATCH /api/analysis/reports/{report_id}": ("view", "root"),
+    "GET /api/analysis/reports/{report_id}/download": ("export", "root"),
+    "GET /api/status": ("view", "filter"),
+    "GET /api/overview/activity": ("view", None),
+    "GET /api/overview/live": ("view", None),
+    "GET /api/profiles": ("view", "root"),
+    "GET /api/bootstrap": ("view", "root"),
+    "GET /api/profile-groups": ("view", "root"),
+    "GET /api/events": ("view", "filter"),
+    "GET /api/search": ("view", "filter"),
+    "GET /api/search/status": ("view", "filter"),
+    "GET /api/chats": ("view", "filter"),
+    "GET /api/notifications": ("view", "filter"),
+    "GET /api/chats/{chat_id}/messages": ("view", "path"),
+    "GET /api/chats/{chat_id}/authors": ("view", "path"),
+    "GET /api/chats/{chat_id}/people": ("view", "path"),
+    "GET /api/chats/{chat_id}/people/{user_id}": ("view", "path"),
+    "GET /api/chats/{chat_id}/people/{user_id}/assets": ("view", "path"),
+    "GET /api/profiling": ("collect", None),
+    "POST /api/profiling/{action}": ("collect", None),
+    "GET /api/chats/{chat_id}/profile": ("view", "path"),
+    "GET /api/chats/{chat_id}/coverage": ("view", "path"),
+    "GET /api/chats/{chat_id}/dossier": ("view", "path"),
+    "GET /api/chats/{chat_id}/scale": ("view", "path"),
+    "GET /api/avatar/{peer_id}": ("view", "body"),
+    "GET /api/avatars": ("view", "body"),
+    "GET /api/media/{digest}": ("view", "body"),
+    "GET /api/stream": ("view", "body"),
+    "GET /api/scope": ("view", None),
+    "GET /api/evidence": ("view", None),
+    "GET /api/source-check": ("view", None),
+    "GET /api/replica": ("settings", None),
+    "GET /api/health": ("view", None),
+    "GET /api/alerts": ("settings", None),
+    "GET /api/parameters": ("settings", None),
+    "GET /api/mode": ("view", None),
+    "GET /api/checkpoint": ("view", None),
+    "GET /api/run-receipt": ("view", None),
+    "GET /api/account/loss-report": ("export", None),
+    "POST /api/verify": ("view", None),
+    "GET /api/exports/history": ("export", None),
+    "GET /api/export/{fmt}": ("export", None),
+    "POST /api/export/{fmt}": ("export", None),
+    "POST /api/handover": ("export", "body"),
+    "GET /api/anchor-request": ("export", None),
+    "GET /api/report-options": ("view", None),
+    "GET /api/report-guidance": ("view", None),
+    "POST /api/report-options": ("export", None),
+    "GET /api/report-profiles": ("view", None),
+    "POST /api/report-profiles": ("export", None),
+    "DELETE /api/report-profiles/{profile_id}": ("export", None),
+    "POST /api/report-preview": ("export", None),
+    "POST /api/report-design-preview": ("export", None),
+    "GET /api/chats/{chat_id}/dossier/export": ("export", "path"),
+    "POST /api/chats/{chat_id}/dossier/export": ("export", "path"),
+    "POST /api/chat-export/start": ("export", "body"),
+    "POST /api/chat-export/start-over": ("export", "body"),
+    "GET /api/chat-export/{export_id}": ("export", "body"),
+    "POST /api/chat-export/{export_id}/cancel": ("export", "body"),
+    "GET /api/chat-export/{export_id}/download": ("export", "body"),
+    "GET /api/chat-export/{export_id}/live": ("export", "body"),
+    "POST /api/multi-export/start": ("export", "root"),
+    "POST /api/multi-export/plan": ("export", "root"),
+    "GET /api/multi-export/current": ("export", "root"),
+    "GET /api/multi-export/{export_id}": ("export", "root"),
+    "GET /api/multi-export/jobs": ("export", "root"),
+    "POST /api/multi-export/{export_id}/pause": ("export", "root"),
+    "POST /api/multi-export/{export_id}/resume": ("export", "root"),
+    "POST /api/multi-export/{export_id}/cancel": ("export", "root"),
+    "GET /api/multi-export/{export_id}/download": ("export", "root"),
+    "GET /api/dialogs": ("sources", None),
+    "POST /api/targets": ("sources", "body"),
+    "POST /api/targets/batch": ("sources", "body"),
+    "POST /api/targets/ignore-unconfirmed": ("sources", "body"),
+    "POST /api/targets/priority": ("sources", "body"),
+    "DELETE /api/targets/{chat_id}": ("sources", "path"),
+    "POST /api/scope": ("sources", None),
+    "POST /api/recheck": ("sources", None),
+    "POST /api/snapshot": ("sources", "body"),
+    "POST /api/history/{action}": ("sources", None),
+    "GET /api/history": ("view", None),
+    "GET /api/history/report": ("export", None),
+    "POST /api/chats/{chat_id}/profile": ("sources", "path"),
+    "POST /api/chats/{chat_id}/dossier": ("sources", "path"),
+    "POST /api/collector/{action}": ("collect", None),
+    "GET /api/secret-chats": ("view", None),
+    "POST /api/secret-chats/settings": ("settings", None),
+    "POST /api/secret-chats/install": ("settings", None),
+    "POST /api/secret-chats": ("interact", None),
+    "POST /api/secret-chats/{chat_id}/accept": ("interact", None),
+    "POST /api/secret-chats/{chat_id}/messages": ("interact", None),
+    "POST /api/secret-chats/{chat_id}/close": ("interact", None),
+    "GET /api/visibility": ("view", None),
+    "POST /api/visibility": ("settings", None),
+    "GET /api/chats/{chat_id}/visibility": ("view", "path"),
+    "POST /api/chats/{chat_id}/read": ("interact", "path"),
+    "POST /api/chats/{chat_id}/content-opened": ("interact", "path"),
+    "POST /api/chats/{chat_id}/story-read": ("interact", "path"),
+    "POST /api/chats/{chat_id}/typing": ("interact", "path"),
+    "GET /api/secret-chats/{chat_id}/visibility": ("view", None),
+    "POST /api/secret-chats/{chat_id}/read": ("interact", None),
+    "POST /api/secret-chats/{chat_id}/content-opened": ("interact", None),
+    "POST /api/secret-chats/{chat_id}/typing": ("interact", None),
+    "POST /api/interactions/preview": ("interact", None),
+    "POST /api/interactions": ("interact", "body"),
+    "GET /api/interactions/{request_id}": ("interact", "body"),
+    "POST /api/interactions/read-only": ("account", None),
+    "POST /api/capture": ("settings", None),
+    "POST /api/media/queue/clear": ("settings", None),
+    "POST /api/monitoring": ("settings", None),
+    "POST /api/recording": ("view", None),
+    "POST /api/evidence": ("settings", None),
+    "POST /api/evidence/anchor": ("settings", None),
+    "POST /api/source-check": ("settings", None),
+    "POST /api/replica": ("settings", None),
+    "POST /api/replica/sync": ("settings", None),
+    "POST /api/replica/test": ("settings", None),
+    "POST /api/alerts": ("settings", None),
+    "POST /api/alerts/test": ("settings", None),
+    "POST /api/parameters": ("settings", None),
+    "PATCH /api/mode": ("settings", None),
+    "GET /api/witness": ("settings", None),
+    "POST /api/witness/tokens": ("settings", None),
+    "DELETE /api/witness/tokens/{token_id}": ("settings", None),
+    "POST /api/auth/configure": ("account", None),
+    "POST /api/auth/phone/start": ("account", None),
+    "POST /api/auth/import": ("account", None),
+    "POST /api/auth/qr/start": ("account", None),
+    "GET /api/auth/qr/{login_id}": ("account", None),
+    "POST /api/auth/qr/{login_id}/cancel": ("account", None),
+    "POST /api/auth/phone": ("account", None),
+    "POST /api/auth/code": ("account", None),
+    "POST /api/auth/password": ("account", None),
+    "POST /api/auth/logout": ("account", None),
+    "POST /api/network": ("account", None),
+    "GET /api/network/policy": ("account", None),
+    "POST /api/network/policy": ("account", None),
+    "GET /api/network/catalog": ("account", None),
+    "POST /api/network/catalog/refresh": ("account", None),
+    "POST /api/network/catalog/{proxy_id}": ("account", None),
+    "GET /api/network/proxies": ("account", None),
+    "POST /api/network/proxies/check": ("account", None),
+    "POST /api/network/github-token": ("account", None),
+    "POST /api/network/parse-link": ("account", None),
+    "POST /api/network/test": ("account", None),
+}
+
+QUIET_KINDS = ("message.", "reaction.", "membership.", "media.saved", "collector.heartbeat")
+
+
+class Refused(Exception):
+    pass
+
+
+def digest(token):
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def unix_iso(value):
+    return None if value is None else datetime.fromtimestamp(value, timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+class GrantSettings(BaseModel):
+    label: str = Field(min_length=1, max_length=80)
+    showcase: StrictBool = False
+    permissions: list[Literal[PERMISSIONS]] = Field(default_factory=lambda: ["view"], max_length=len(PERMISSIONS))
+    all_workspaces: bool = False
+
+    workspaces: dict[str, list[int] | None] = Field(default_factory=dict, max_length=1000)
+    groups: list[str] = Field(default_factory=list, max_length=100)
+    ips: list[str] = Field(default_factory=list, max_length=100)
+    bind_first_ip: bool = False
+    max_uses: int | None = Field(default=None, ge=1, le=1000000)
+    expires_at: float | None = None
+    max_sessions: int = Field(default=1, ge=1, le=100)
+    on_limit: Literal["refuse", "replace"] = "refuse"
+    session_minutes: int = Field(default=720, ge=5, le=43200)
+
+    @field_validator("label")
+    @classmethod
+    def plain_label(cls, value):
+        if not value.strip():
+            raise ValueError("Enter a name for this access.")
+        return value.strip()
+
+    @field_validator("ips")
+    @classmethod
+    def networks(cls, values):
+        result = []
+        for value in values:
+            try:
+                result.append(str(ipaddress.ip_network(value.strip(), strict=False)))
+            except ValueError:
+                raise ValueError("Enter addresses as IP addresses or subnets such as 203.0.113.7 or 203.0.113.0/24.") from None
+        return list(dict.fromkeys(result))
+
+    @model_validator(mode="after")
+    def complete(self):
+        for key, chats in self.workspaces.items():
+            if not WORKSPACE_ID.fullmatch(key):
+                raise ValueError("Unknown workspace.")
+            if chats is not None:
+                if not chats or len(chats) > 10000:
+                    raise ValueError("Choose at least one chat, or open the whole workspace.")
+                self.workspaces[key] = sorted(set(chats))
+        if any(not GROUP_ID.fullmatch(group) for group in self.groups):
+            raise ValueError("Unknown account group.")
+        self.groups = sorted(set(self.groups))
+        if not self.all_workspaces and not self.workspaces and not self.groups:
+            raise ValueError("Choose at least one workspace for this access.")
+        self.permissions = [p for p in PERMISSIONS if p in {"view", *self.permissions}]
+        if self.showcase:
+            if self.all_workspaces or self.groups or any(chats is None for chats in self.workspaces.values()):
+                raise ValueError("A showcase opens only explicitly selected public channels.")
+            if len(self.workspaces) > 16 or sum(len(chats) for chats in self.workspaces.values()) > 64:
+                raise ValueError("A showcase supports up to 16 workspaces and 64 channels.")
+            if self.permissions != ["view"]:
+                raise ValueError("A showcase is read-only. Additional permissions are not allowed.")
+        return self
+
+
+class AdminSettings(BaseModel):
+    max_sessions: int = Field(default=0, ge=0, le=100)
+    on_limit: Literal["refuse", "replace"] = "replace"
+    session_minutes: int = Field(default=720, ge=5, le=43200)
+
+
+@dataclass
+class Principal:
+    admin: bool
+    label: str
+    grant: dict | None = None
+    session_id: str | None = None
+    group_of: Callable | None = None
+
+    @property
+    def owner(self):
+        return "admin" if self.admin else self.grant["id"]
+
+    def by_group(self, profile_id):
+        groups = self.grant.get("groups") or []
+        return bool(groups and self.group_of and self.group_of(profile_id) in groups)
+
+    def opens(self, profile_id):
+        return (self.admin or self.grant["all_workspaces"] or profile_id in self.grant["workspaces"]
+                or self.by_group(profile_id))
+
+    def chats(self, profile_id):
+        if self.admin or self.grant["all_workspaces"] or self.by_group(profile_id):
+            return None
+        listed = self.grant["workspaces"].get(profile_id)
+        return None if listed is None else set(listed)
+
+    def may(self, permission):
+        if not self.admin and self.grant.get("showcase"):
+            return permission == "showcase"
+        return self.admin or permission in self.grant["permissions"]
+
+    def public(self):
+        if self.admin:
+            return {"admin": True, "label": self.label, "permissions": list(PERMISSIONS), "all_workspaces": True,
+                    "workspaces": {}, "expires_at": None}
+        return {"admin": False, "label": self.label, "showcase": bool(self.grant.get("showcase")),
+                "permissions": ["showcase"] if self.grant.get("showcase") else self.grant["permissions"],
+                "all_workspaces": self.grant["all_workspaces"], "workspaces": self.grant["workspaces"],
+                "groups": self.grant.get("groups") or [], "expires_at": unix_iso(self.grant["expires_at"])}
+
+
+def check(principal, profile_id, rule, path_params):
+    if principal.admin:
+        return
+    if rule is None:
+        raise Refused("Only the main administrator can do this.")
+    permission, chat = rule
+    if chat != "root" and not principal.opens(profile_id):
+        raise Refused("This access does not open this workspace.")
+    if not principal.may(permission):
+        raise Refused("This access does not allow this action.")
+    allowed = None if chat == "root" else principal.chats(profile_id)
+    if allowed is not None:
+        if chat is None:
+            raise Refused("This access opens only chosen chats; this part of the workspace is closed to it.")
+        if chat == "path":
+            try:
+                chat_id = int(path_params["chat_id"])
+            except (KeyError, TypeError, ValueError):
+                raise Refused("This chat is not open to this access.") from None
+            if chat_id not in allowed:
+                raise Refused("This chat is not open to this access.")
+
+
+class Console(logging.Handler):
+    def __init__(self, size=5000):
+        super().__init__(logging.INFO)
+        self.lines, self.counter, self.guard = deque(maxlen=size), 0, threading.Lock()
+        self.last = None
+
+    def emit(self, record):
+        with self.guard:
+            if record is self.last:
+                return
+            self.last = record
+        try:
+            text = record.getMessage()
+            if record.exc_info and record.exc_info[1] is not None:
+                text += " · " + type(record.exc_info[1]).__name__
+        except Exception:
+            text = str(record.msg)
+        with self.guard:
+            self.counter += 1
+            self.lines.append({"n": self.counter, "at": utcnow(), "level": record.levelname,
+                               "source": record.name, "text": private_log(text[:8000])[:2000]})
+
+    def after(self, n, limit=500):
+        with self.guard:
+            lines = [line for line in self.lines if line["n"] > n]
+        return lines[:limit]
+
+    def attach(self):
+        root = logging.getLogger()
+        self.stderr = None
+        if not root.handlers and sys.stderr is not None:
+
+            self.stderr = logging.StreamHandler()
+            self.stderr.setLevel(logging.WARNING)
+            root.addHandler(self.stderr)
+        if root.getEffectiveLevel() > logging.INFO:
+            root.setLevel(logging.INFO)
+        for name in ("httpx", "httpcore"):
+            if logging.getLogger(name).level == logging.NOTSET:
+                logging.getLogger(name).setLevel(logging.WARNING)
+        for name in ("", "uvicorn", "uvicorn.error"):
+            logging.getLogger(name).addHandler(self)
+
+    def detach(self):
+        for name in ("", "uvicorn", "uvicorn.error"):
+            logging.getLogger(name).removeHandler(self)
+        if getattr(self, "stderr", None):
+            logging.getLogger().removeHandler(self.stderr)
+
+
+class AccessControl:
+    def __init__(self, vault, store, console=None):
+        from .live_stream import StreamSlots
+        self.stream_slots = StreamSlots()
+        self.vault, self.store = vault, store
+        saved = vault.read("access")
+        self.grants = saved.get("grants", [])
+        self.names = {**saved.get("names", {}), **{g["id"]: g["label"] for g in self.grants}}
+        now = time.time()
+        saved_sessions = (saved.get("sessions", [])
+                          if secrets.compare_digest(str(saved.get("panel_key") or ""), digest(vault.token)) else [])
+        self.sessions = {s["sha256"]: {**s, "agent": "", "requests": 0}
+                         for s in saved_sessions if s["expires"] > now}
+        self.lock = threading.RLock()
+        self.session_end_listeners = set()
+        self.console = console or Console()
+        self.labels = lambda profile_id: profile_id
+        self.group_of = None
+        if any(s.get("agent") for s in saved.get("sessions", [])):
+            self.save()
+
+
+    def save(self):
+        sessions = [{k: v for k, v in s.items() if k != "requests"} for s in self.sessions.values()]
+        self.vault.save("access", {"grants": self.grants, "sessions": sessions, "names": self.names,
+                                   "panel_key": digest(self.vault.token)})
+
+    def rotate_token(self):
+        from .security import private_write
+        if os.environ.get("TGWITNESS_TOKEN"):
+            raise Refused("The main token is set by TGWITNESS_TOKEN. Change that setting and restart the panel.")
+        token = secrets.token_urlsafe(32)
+        with self.lock:
+            count = len(self.sessions)
+            ended = [None, *(session["id"] for session in self.sessions.values())]
+            private_write(self.vault.root / "panel-token.txt", token.encode())
+            self.vault.token = token
+            self.sessions.clear()
+            self.save()
+        for session_id in ended:
+            for listener in tuple(self.session_end_listeners):
+                listener(session_id)
+        self.store.append("access.main_token_rotated", {"sessions_ended": count})
+        LOG.info("Main panel token replaced; %d sessions ended", count)
+        return token, count
+
+    def admin_settings(self):
+        return {**ADMIN_DEFAULTS, **self.store.get_setting("access_admin", {})}
+
+    def grant(self, grant_id):
+        return next((g for g in self.grants if g["id"] == grant_id), None)
+
+    def match(self, token):
+        found, wanted = None, digest(token)
+        for entry in self.grants:
+            if secrets.compare_digest(entry["sha256"], wanted):
+                found = entry
+        return found
+
+
+    @staticmethod
+    def address_allowed(grant, address):
+        try:
+            ip = ipaddress.ip_address(address)
+        except ValueError:
+            return not grant["ips"] and grant.get("bound_ip") in (None, address)
+        if grant["ips"] and not any(ip in ipaddress.ip_network(n) for n in grant["ips"]):
+            return False
+        return not grant.get("bound_ip") or grant["bound_ip"] == str(ip)
+
+    def refuse(self, grant, address, now, signing_in):
+        try:
+            if grant["expires_at"] is not None and now >= grant["expires_at"]:
+                raise Refused("This access has expired.")
+            if signing_in and grant["max_uses"] is not None and grant["uses"] >= grant["max_uses"]:
+                raise Refused("This access has been used as many times as it allows.")
+            if not self.address_allowed(grant, address):
+                raise Refused("This access does not open the panel from this address.")
+        except Refused as exc:
+            LOG.warning("%s refused for %s from %s: %s", "Sign-in" if signing_in else "Request",
+                        grant["label"], address, exc)
+            raise
+
+    def live(self, owner, now):
+        return sorted((s for s in self.sessions.values() if s["owner"] == owner and s["expires"] > now),
+                      key=lambda s: s["created"])
+
+
+    def login(self, token, address, agent):
+        now = time.time()
+        with self.lock:
+            for sha in [k for k, s in self.sessions.items() if s["expires"] <= now]:
+                del self.sessions[sha]
+            if secrets.compare_digest(digest(token), digest(self.vault.token)):
+                grant, settings, label = None, self.admin_settings(), "Main administrator"
+            else:
+                grant = self.match(token)
+                if grant is None:
+                    return None
+                self.refuse(grant, address, now, signing_in=True)
+                settings, label = grant, grant["label"]
+            owner = grant["id"] if grant else "admin"
+            live = self.live(owner, now)
+            if settings["max_sessions"] and len(live) >= settings["max_sessions"]:
+                if settings["on_limit"] == "refuse":
+                    LOG.warning("Sign-in refused for %s from %s: session limit %d reached",
+                                label, address, settings["max_sessions"])
+                    raise Refused("This access already has as many open sessions as it allows. "
+                                  "End one of them or wait until it expires.")
+                for old in live[:len(live) - settings["max_sessions"] + 1]:
+                    self.end(old["id"], "replaced by a newer session")
+            if grant:
+                grant["uses"] += 1
+                grant["last_login_at"], grant["last_address"] = utcnow(), address
+                if grant["bind_first_ip"] and not grant.get("bound_ip"):
+                    grant["bound_ip"] = address
+            session_token = "tgws_" + secrets.token_urlsafe(32)
+            session = {"sha256": digest(session_token), "id": secrets.token_hex(8), "owner": owner,
+                       "address": address, "agent": "", "created": now, "last_seen": now,
+                       "expires": now + settings["session_minutes"] * 60, "requests": 0}
+            self.sessions[session["sha256"]] = session
+            self.save()
+        self.store.append("access.session_started", {"access_id": owner, "session_id": session["id"]})
+        LOG.info("Session %s started for %s from %s", session["id"], label, address)
+        return session_token, self.principal(session)
+
+    def principal(self, session):
+        if session["owner"] == "admin":
+            return Principal(True, "Main administrator", None, session["id"])
+        grant = self.grant(session["owner"])
+        return Principal(False, grant["label"], grant, session["id"], self.group_of)
+
+    def resolve(self, credential, address):
+        if secrets.compare_digest(digest(credential), digest(self.vault.token)):
+            return Principal(True, "Main administrator (panel token)")
+        now = time.time()
+        with self.lock:
+            session = self.sessions.get(digest(credential))
+            if session is None:
+                return None
+            if session["expires"] <= now:
+                self.end(session["id"], None)
+                return None
+            minutes = self.admin_settings()["session_minutes"]
+            if session["owner"] != "admin":
+                grant = self.grant(session["owner"])
+                if grant is None:
+                    self.end(session["id"], None)
+                    return None
+                try:
+                    self.refuse(grant, address, now, signing_in=False)
+                except Refused:
+                    if grant["expires_at"] is not None and now >= grant["expires_at"]:
+                        self.end(session["id"], "access expired")
+                    raise
+                minutes = grant["session_minutes"]
+            session["last_seen"], session["expires"] = now, now + minutes * 60
+            session["requests"] += 1
+            return self.principal(session)
+
+    def current(self, wanted, address):
+        now = time.time()
+        with self.lock:
+            if secrets.compare_digest(wanted, digest(self.vault.token)):
+                return Principal(True, "Main administrator (panel token)")
+            session = self.sessions.get(wanted)
+            if session is None or session["expires"] <= now:
+                return None
+            if session["owner"] != "admin":
+                grant = self.grant(session["owner"])
+                if grant is None:
+                    return None
+                self.refuse(grant, address, now, signing_in=False)
+            return self.principal(session)
+
+    def end(self, session_id, reason):
+        with self.lock:
+            found = next((s for s in self.sessions.values() if s["id"] == session_id), None)
+            if found is None:
+                return False
+            del self.sessions[found["sha256"]]
+            self.save()
+        for listener in tuple(self.session_end_listeners):
+            listener(session_id)
+        label = "Main administrator" if found["owner"] == "admin" else (self.grant(found["owner"]) or {}).get("label")
+        if reason:
+            self.store.append("access.session_ended", {"access_id": found["owner"], "session_id": session_id,
+                                                      "reason": reason})
+        LOG.info("Session %s of %s ended: %s", session_id, label, reason or "expired")
+        return True
+
+
+    def journal_view(self, grant):
+        return {"access_id": grant["id"], "showcase": bool(grant.get("showcase")), **{k: grant[k] for k in (
+            "permissions", "all_workspaces", "workspaces", "bind_first_ip", "max_uses",
+            "max_sessions", "on_limit", "session_minutes")}, "groups": grant.get("groups") or [],
+            "ip_restrictions": len(grant["ips"]), "expires_at": unix_iso(grant["expires_at"])}
+
+    def issue(self, settings: GrantSettings):
+        if settings.expires_at is not None and settings.expires_at <= time.time():
+            raise Refused("Choose an end date in the future.")
+        token = "tgwa_" + secrets.token_urlsafe(32)
+        grant = {"id": secrets.token_hex(8), "sha256": digest(token), "created_at": utcnow(), "uses": 0,
+                 "bound_ip": None, "last_login_at": None, "last_address": None, **settings.model_dump()}
+        with self.lock:
+            self.grants.append(grant)
+            self.names[grant["id"]] = grant["label"]
+            self.save()
+        self.store.append("access.granted", self.journal_view(grant))
+        LOG.info("Access %s issued (%s)", grant["label"], ", ".join(grant["permissions"]))
+        return token, grant
+
+    def change(self, grant_id, settings: GrantSettings):
+        with self.lock:
+            grant = self.grant(grant_id)
+            if grant is None:
+                raise Refused("Unknown access.")
+            if bool(grant.get("showcase")) != settings.showcase:
+                raise Refused("Create a new access to change between a showcase and ordinary panel access.")
+            if settings.expires_at is not None and settings.expires_at <= time.time():
+                raise Refused("Choose an end date in the future.")
+            if not settings.bind_first_ip:
+                grant["bound_ip"] = None
+            grant.update(settings.model_dump())
+            self.names[grant_id] = grant["label"]
+            self.save()
+            extra = self.live(grant_id, time.time())[:-grant["max_sessions"]] if grant["max_sessions"] else []
+        for old in extra:
+            self.end(old["id"], "access changed")
+        self.store.append("access.changed", self.journal_view(grant))
+        LOG.info("Access %s changed", grant["label"])
+        return grant
+
+    def revoke(self, grant_id):
+        with self.lock:
+            grant = self.grant(grant_id)
+            if grant is None:
+                raise Refused("Unknown access.")
+            sessions = [s["id"] for s in self.sessions.values() if s["owner"] == grant_id]
+        for session_id in sessions:
+            self.end(session_id, "access revoked")
+        with self.lock:
+            self.grants = [g for g in self.grants if g["id"] != grant_id]
+            self.save()
+        self.store.append("access.revoked", {"access_id": grant_id})
+        LOG.info("Access %s revoked", grant["label"])
+
+    def forget_group(self, group_id):
+        with self.lock:
+            changed = [g for g in self.grants if group_id in (g.get("groups") or [])]
+            for grant in changed:
+                grant["groups"] = [g for g in grant["groups"] if g != group_id]
+            if changed:
+                self.save()
+        for grant in changed:
+            self.store.append("access.changed", self.journal_view(grant))
+
+    def set_admin(self, settings: AdminSettings):
+        with self.store.transaction():
+            self.store.set_setting("access_admin", settings.model_dump())
+            self.store.append("access.admin_changed", settings.model_dump())
+        LOG.info("Main administrator session settings changed")
+        return self.admin_settings()
+
+
+    def state(self, current_session=None):
+        now = time.time()
+        with self.lock:
+            sessions = [s for s in self.sessions.values() if s["expires"] > now]
+            listed = []
+            for s in sorted(sessions, key=lambda s: s["created"], reverse=True):
+                grant = None if s["owner"] == "admin" else self.grant(s["owner"])
+                listed.append({"id": s["id"], "access_id": s["owner"], "admin": s["owner"] == "admin",
+                               "label": "Main administrator" if grant is None else grant["label"],
+                               "address": s["address"], "agent": s["agent"], "requests": s["requests"],
+                               "started_at": unix_iso(s["created"]), "last_seen_at": unix_iso(s["last_seen"]),
+                               "expires_at": unix_iso(s["expires"]), "current": s["id"] == current_session})
+            grants = []
+            for g in self.grants:
+                view = {k: v for k, v in g.items() if k != "sha256"}
+                view["expires_at"] = unix_iso(g["expires_at"])
+                view["expires_unix"] = g["expires_at"]
+                view["expired"] = g["expires_at"] is not None and now >= g["expires_at"]
+                view["used_up"] = g["max_uses"] is not None and g["uses"] >= g["max_uses"]
+                view["sessions"] = sum(1 for s in sessions if s["owner"] == g["id"])
+                grants.append(view)
+            names = dict(self.names)
+        return {"grants": grants, "sessions": listed, "admin": self.admin_settings(),
+                "permissions": list(PERMISSIONS), "names": names}
+
+    def journal_listener(self, profile_id):
+        def listen(event):
+            if event["kind"].startswith(QUIET_KINDS):
+                return
+            details = []
+            if event["chat_id"] is not None:
+                details.append("chat " + str(event["chat_id"]))
+            payload = event["payload"] if isinstance(event["payload"], dict) else {}
+            for key in ("reason", "error_type", "label", "phase"):
+                if isinstance(payload.get(key), (str, int)):
+                    details.append(key + " " + str(payload[key])[:120])
+            JOURNAL_LOG.info("%s · #%d %s%s", self.labels(profile_id), event["seq"], event["kind"],
+                             (" · " + ", ".join(details)) if details else "")
+        return listen

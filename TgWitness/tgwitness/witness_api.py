@@ -1,0 +1,91 @@
+import hashlib
+import re
+import secrets
+import time
+
+from .evidence import producer
+from .capture_proof import capture_head
+from .store import utcnow
+
+SEEN_LIMIT = 16
+
+
+def tokens(vault):
+    return vault.read("witness").get("tokens", [])
+
+
+def create(vault, store, label):
+    token = "tgww_" + secrets.token_urlsafe(32)
+    entry = {"id": secrets.token_hex(8), "label": label, "sha256": hashlib.sha256(token.encode()).hexdigest(),
+             "created_at": utcnow()}
+    vault.save("witness", {"tokens": [*tokens(vault), entry]})
+    store.append("witness.token_created", {"token_id": entry["id"], "label": label,
+                                           "access": "signed checkpoint, capture counters and collector health; no message content"})
+    return token, entry
+
+
+def revoke(vault, store, token_id):
+    kept = [t for t in tokens(vault) if t["id"] != token_id]
+    if len(kept) == len(tokens(vault)):
+        raise ValueError("Unknown witness token.")
+    vault.save("witness", {"tokens": kept})
+    polls, seen = store.get_setting("witness_polls", {}), store.get_setting("witness_seen", {})
+    polls.pop(token_id, None)
+    seen.pop(token_id, None)
+    with store.transaction():
+        store.set_setting("witness_polls", polls)
+        store.set_setting("witness_seen", seen)
+        store.append("witness.token_revoked", {"token_id": token_id})
+
+
+def match(vault, presented):
+    digest = hashlib.sha256(presented.encode()).hexdigest()
+    found = None
+    for entry in tokens(vault):
+        if secrets.compare_digest(entry["sha256"], digest):
+            found = entry
+    return found
+
+
+def head(store, vault, entry, headers, address, status=None):
+    witness = (headers.get("x-tgwitness-witness") or "").lower()
+    witness = witness if re.fullmatch(r"[0-9a-f]{64}", witness) else None
+    interval = headers.get("x-tgwitness-interval") or ""
+    interval = int(interval) if re.fullmatch(r"\d{1,4}", interval) and 0 < int(interval) <= 1440 else None
+    challenge = headers.get("x-tgwitness-challenge") or ""
+    challenge = challenge if re.fullmatch(r"[0-9a-f]{32}", challenge) else None
+    start = headers.get("x-tgwitness-consistency-from")
+    if start is not None:
+        if not re.fullmatch(r"0|[1-9][0-9]{0,18}", start) or int(start) >= 2**63 or challenge is None:
+            from fastapi import HTTPException
+            raise HTTPException(400, "A bounded record count and challenge are required for continuity proofs")
+        start = int(start)
+    answer = {"format": "tgwitness-witness-head-v1",
+              **capture_head(store, vault, status or {}, challenge, consistency_from=start), "producer": producer()}
+    with store.transaction():
+        polls, seen = store.get_setting("witness_polls", {}), store.get_setting("witness_seen", {})
+        previous = (polls.get(entry["id"]) or {}).get("witness")
+        known = seen.get(entry["id"], [previous] if previous else [])
+        polls[entry["id"]] = {"at": utcnow(), "unix": time.time(), "witness": witness, "address": address,
+                              "interval_minutes": interval}
+        store.set_setting("witness_polls", polls)
+        if witness and witness not in known and len(known) < SEEN_LIMIT:
+            store.set_setting("witness_seen", {**seen, entry["id"]: [*known, witness]})
+            store.append("witness.seen", {"token_id": entry["id"], "label": entry["label"],
+                                          "witness_fingerprint": witness,
+                                          "meaning": "an independent witness began fetching the signed journal head"})
+    return answer
+
+
+def state(vault, store):
+    polls, now = store.get_setting("witness_polls", {}), time.time()
+    listed = []
+    for entry in tokens(vault):
+        poll = polls.get(entry["id"])
+        overdue = None
+        if poll and poll.get("interval_minutes"):
+            overdue = now - poll["unix"] > poll["interval_minutes"] * 60 * 2.5
+        listed.append({"id": entry["id"], "label": entry["label"], "created_at": entry["created_at"],
+                       "last_poll": {k: v for k, v in poll.items() if k != "unix"} if poll else None,
+                       "overdue": overdue})
+    return {"tokens": listed, "path": "/api/witness/head"}

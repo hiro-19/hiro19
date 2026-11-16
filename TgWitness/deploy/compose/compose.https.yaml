@@ -1,0 +1,39 @@
+services:
+  tgwitness:
+    environment:
+      TGWITNESS_TRUSTED_PROXIES: ${TGWITNESS_EDGE_PREFIX:-172.30.87}.2/32
+    networks:
+      default: {}
+      edge:
+        ipv4_address: ${TGWITNESS_EDGE_PREFIX:-172.30.87}.3
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      TGWITNESS_DOMAIN: ${TGWITNESS_DOMAIN:?Set TGWITNESS_DOMAIN to your public DNS hostname in .env}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile.docker:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      edge:
+        ipv4_address: ${TGWITNESS_EDGE_PREFIX:-172.30.87}.2
+    depends_on:
+      tgwitness:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+networks:
+  edge:
+    ipam:
+      config:
+        - subnet: ${TGWITNESS_EDGE_PREFIX:-172.30.87}.0/29
+volumes:
+  caddy-data:
+  caddy-config:

@@ -1,0 +1,195 @@
+name: Security audit
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  merge_group:
+    types: [checks_requested]
+  schedule:
+    - cron: "23 7 * * *"
+  workflow_dispatch:
+  workflow_call:
+permissions:
+  contents: read
+concurrency:
+  group: security-audit-${{ github.ref }}
+  cancel-in-progress: false
+defaults:
+  run:
+    shell: bash
+jobs:
+  dependencies:
+    name: Advisory audit (${{ matrix.name }})
+    if: github.event_name == 'release' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: runtime
+            lock: deploy/requirements.lock
+          - name: build
+            lock: deploy/build.lock
+          - name: installer
+            lock: deploy/installer.lock
+          - name: mcp
+            lock: deploy/constraints-mcp.txt
+          - name: mcp-lock
+            lock: deploy/mcp.lock
+          - name: audit-tooling
+            lock: deploy/audit.lock
+          - name: browser-tooling
+            lock: deploy/browser.lock
+          - name: site-tooling
+            lock: deploy/site.lock
+          - name: media-worker
+            lock: deploy/media-worker/requirements.lock
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: "3.12"
+      - run: 'python -m pip install --require-hashes --only-binary=:all: -r deploy/audit.lock'
+      - name: Audit exact versions against current advisories
+        env:
+          AUDIT_LOCK: ${{ matrix.lock }}
+        run: |
+          python -m pip_audit -r "$AUDIT_LOCK" --no-deps --disable-pip --strict \
+            --progress-spinner off --format json --output dependency-audit.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        if: always()
+        with:
+          name: security-dependencies-${{ matrix.name }}
+          path: dependency-audit.json
+          if-no-files-found: warn
+          retention-days: 14
+  codeql:
+    name: CodeQL (${{ matrix.language }})
+    if: github.event_name == 'release' || github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || github.event_name == 'merge_group' || github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write  # upload SARIF results
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [python, javascript-typescript, actions]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Initialize language-specific security analysis
+        uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370  # v4.39.1
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+          queries: security-extended
+      - name: Analyze and upload SARIF to code scanning
+        uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370  # v4.39.1
+        with:
+          category: /language:${{ matrix.language }}
+  containers:
+    name: Container vulnerabilities (${{ matrix.name }})
+    if: github.event_name == 'release' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      security-events: write  # upload SARIF results
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: runtime
+            dockerfile: deploy/Dockerfile
+            platform: linux/amd64
+          - name: runtime-arm64
+            dockerfile: deploy/Dockerfile
+            platform: linux/arm64
+          - name: sealed
+            dockerfile: deploy/Dockerfile.sealed
+            platform: linux/amd64
+          - name: media-worker
+            dockerfile: deploy/media-worker/Dockerfile
+            platform: linux/amd64
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Enable the ARM64 execution check
+        if: matrix.platform == 'linux/arm64'
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1  # v4.4.0
+        with:
+          platforms: arm64
+      - name: Check source-built OCR against its upstream advisories
+        if: matrix.name == 'media-worker'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 -I tools/ocr_advisories.py --output ocr-upstream-advisories.json
+      - name: Build the actual image from the public source archive
+        id: build_image
+        env:
+          AUDIT_DOCKERFILE: ${{ matrix.dockerfile }}
+          AUDIT_IMAGE: tgwitness-security:${{ matrix.name }}
+          AUDIT_PLATFORM: ${{ matrix.platform }}
+        run: |
+          python3 tools/build_source.py
+          export CONTAINER_SOURCE_DIR
+          CONTAINER_SOURCE_DIR=$(mktemp -d "$RUNNER_TEMP/tgwitness-source.XXXXXX")
+          python3 - <<'PY'
+          import os, tomllib, zipfile
+          from pathlib import Path
+          version = tomllib.loads(Path("pyproject.toml").read_text())["project"]["version"]
+          with zipfile.ZipFile(Path("dist") / f"TgWitness-{version}-source.zip") as archive:
+              archive.extractall(os.environ["CONTAINER_SOURCE_DIR"])
+          PY
+          docker build --pull --platform "$AUDIT_PLATFORM" \
+            -f "$CONTAINER_SOURCE_DIR/TgWitness/$AUDIT_DOCKERFILE" \
+            -t "$AUDIT_IMAGE" "$CONTAINER_SOURCE_DIR/TgWitness"
+      - name: Check the installed runtime CLI without networking
+        if: matrix.name == 'runtime' || matrix.name == 'runtime-arm64'
+        env:
+          AUDIT_IMAGE: tgwitness-security:${{ matrix.name }}
+          AUDIT_PLATFORM: ${{ matrix.platform }}
+        run: >-
+          docker run --rm --platform "$AUDIT_PLATFORM" --network none --read-only --cap-drop=ALL
+          --security-opt=no-new-privileges --tmpfs /tmp:size=128m,mode=1777
+          "$AUDIT_IMAGE" python -I -m tgwitness --check --json --data-dir /tmp/readiness
+      - name: Scan OS and installed library packages
+        if: ${{ !cancelled() && steps.build_image.outcome == 'success' }}
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
+        with:
+          version: v0.76.1
+          scan-type: image
+          image-ref: tgwitness-security:${{ matrix.name }}
+          scanners: vuln
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          ignore-unfixed: false
+          format: sarif
+          limit-severities-for-sarif: true
+          output: trivy.sarif
+          exit-code: "1"
+          timeout: 15m
+          hide-progress: true
+          cache: false
+      - name: Upload findings even when the severity gate fails
+        if: always() && hashFiles('trivy.sarif') != ''
+        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370  # v4.39.1
+        with:
+          sarif_file: trivy.sarif
+          category: container-${{ matrix.name }}
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        if: always() && (hashFiles('trivy.sarif') != '' || hashFiles('ocr-upstream-advisories.json') != '')
+        with:
+          name: security-container-${{ matrix.name }}
+          path: |
+            trivy.sarif
+            ocr-upstream-advisories.json
+          retention-days: 14

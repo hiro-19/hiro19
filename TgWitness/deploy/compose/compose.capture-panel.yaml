@@ -1,0 +1,12 @@
+name: tgwitness
+services:
+  tgwitness:
+    networks: [default, browser-internal, ayugram-recorder]
+  browser:
+    networks:
+      browser-internal:
+        aliases: [capture-browser]
+  ayugram-recorder:
+    networks:
+      ayugram-recorder:
+        aliases: [capture-ayugram]

@@ -1,0 +1,39 @@
+[TgWitness](../../README.md) / [website](../README.md)
+
+<picture>
+  <source media="(max-width: 640px) and (prefers-reduced-motion: reduce)" srcset="../../docs/assets/presentation/section-docs-mobile-static.svg">
+  <source media="(prefers-reduced-motion: reduce)" srcset="../../docs/assets/presentation/section-docs-static.svg">
+  <source media="(max-width: 640px)" srcset="../../docs/assets/presentation/section-docs-mobile.svg">
+  <img src="../../docs/assets/presentation/section-docs.svg" width="1200" alt="TgWitness / Documentation">
+</picture>
+
+# Website guides
+
+HTML source fragments for the public site's practical guides. The English source is
+in [`en/`](en/README.md); language handling is described in
+[`../i18n/`](../i18n/README.md).
+
+[`modes.html`](modes.html) is the complete capability-guide template. Its text uses
+`{{modes.*}}` keys from all 26 catalogues, including `i18n/en.json`. The site builder
+renders `/guides/modes.html` and each language's equivalent, with no translation
+requests in the browser. `tools/site_modes.py` rejects missing keys and escapes
+translated text. The page uses `style.css`, `learn.css`, `site.js` and the existing
+canonical SHA-256 implementation in `learn.js`.
+
+The 25 full-site languages include these guides, cases, reference documentation
+and the panel. Amharic retains the capability and setup guides and both project
+notices; its other reference links open English, as disclosed on the page.
+
+The guide inventory and next-page order are defined in
+[`tools/site_content.py`](../../tools/site_content.py). The builder combines these
+fragments with the documentation layout, navigation and translated text.
+
+## Edit a guide
+
+Keep instructions consistent with the corresponding document in
+[`docs/`](../../docs/README.md). Build and check the site using the commands in
+the [website README](../README.md). Use fictional examples and retain record
+references in investigation walkthroughs.
+
+The [`ru/`](ru/README.md) directory currently contains no translated HTML guide
+fragments; public-site language catalogues are maintained separately.

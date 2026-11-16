@@ -1,0 +1,701 @@
+import asyncio
+import hashlib
+import ipaddress
+import json
+import secrets
+import time
+from contextlib import AsyncExitStack, suppress
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from . import netclient
+from .network import NetworkConfig, RoutePolicy
+from .portable_routes import PortableRoutes, target_platform, HASHES, WARP_ENDPOINTS, wireguard_profile
+from .transport.route_health import SLOW_MS, RouteHealth, handshake, home_dc
+
+GOOD_MS = 1500
+REROLL_MEANING = ("The local WARP tunnel was restarted with another Cloudflare endpoint or device registration. "
+                  "The Telegram account, its session and the local proxy address stayed the same; Telegram "
+                  "connections reconnected through the tunnel.")
+
+
+class ConnectionDraft(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    mode: Literal["auto", "direct", "vpn", "proxy", "mtproxy", "warp"]
+    scope: Literal["account", "group", "all"] = "account"
+    account: str = Field(default="default", max_length=40)
+    group: str | None = Field(default=None, max_length=40)
+    keep_custom: bool = True
+    proxy: NetworkConfig | None = None
+    wireguard: str = Field(default="", max_length=16384)
+    accept_setup: bool = False
+    outside_enabled: bool = True
+    allow_direct: bool = False
+    proxy_url: str = Field(default="", max_length=2048)
+
+    @model_validator(mode="after")
+    def coherent(self):
+        if self.proxy_url:
+            from .network import parse_proxy_url
+            if self.mode != "proxy" or self.proxy is not None:
+                raise ValueError("Use one proxy address.")
+            self.proxy = parse_proxy_url(self.proxy_url)
+            self.proxy_url = ""
+        if self.mode == "proxy" and (not self.proxy or self.proxy.kind not in ("socks5", "http", "mtproxy")):
+            raise ValueError("Enter a SOCKS5, HTTP CONNECT or MTProxy route.")
+        if self.mode != "proxy" and self.proxy is not None:
+            raise ValueError("Proxy fields belong to the Proxy route.")
+        if self.mode == "vpn" and not self.wireguard:
+            raise ValueError("Paste a full-tunnel WireGuard profile.")
+        if self.mode != "vpn" and self.wireguard:
+            raise ValueError("WireGuard profiles belong to the VPN route.")
+        if self.mode == "vpn" and self.scope != "account":
+            raise ValueError("Import each account's own VPN profile separately; do not reuse one WireGuard key concurrently.")
+        return self
+
+
+class ApplyDraft(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    plan: str = Field(min_length=32, max_length=64)
+
+
+class RerollDraft(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal["endpoint", "identity"] = "endpoint"
+
+
+def revision(collector):
+    data = [collector.network_config().model_dump(), collector.route_policy(), collector.vault.read("outside_proxy")]
+    return hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
+
+
+async def install(c, route, managed, policy, mode, check):
+    await c.stop()
+    c.store.set_setting("route_policy", {"exposure": "tunnel", "outside_enabled": False})
+    await c.set_network(route)
+    if not route.telegram_only:
+        c.vault.save("outside_proxy", {})
+    c.vault.save("portable_route", managed or {})
+    with c.store.transaction():
+        c.store.set_setting("route_policy", policy.model_dump())
+        check["revision"] = revision(c)
+        c.store.set_setting("connection_check", check)
+        c.store.append("network.connection_applied", {"mode": mode, **route.receipt(),
+            "policy": policy.model_dump(), "check": check,
+            "meaning": "Transport route checked for this connection."})
+
+
+async def adopt_route(app, mode, consent):
+    c, portable = app.state.collector, app.state.connection.portable
+    managed = None
+    try:
+        if mode == "warp":
+            managed = await portable.prepare("warp", "", consent, lambda stage: None)
+            route = NetworkConfig.model_validate(managed["network"])
+        else:
+            route = NetworkConfig(kind="direct" if mode == "direct" else "mtproxy_auto")
+        policy = RoutePolicy(exposure="tunnel" if route.kind == "direct" else "hide",
+                             outside_enabled=not route.telegram_only or c.outside_proxy() is not None)
+        check = await asyncio.wait_for(probe(c, route, mode, outside=policy.outside_enabled), 45)
+        await install(c, route, managed, policy, mode, check)
+        c.store.set_setting("connection_strategy", {"mode": mode, "allow_direct": mode == "direct"})
+        return check
+    except BaseException:
+        if managed:
+            with suppress(Exception):
+                await portable.stop(managed["id"])
+        raise
+
+
+class CheckTunnel:
+    def __init__(self, portable):
+        self.portable, self.lock, self.users, self.saved, self.timer = portable, asyncio.Lock(), 0, None, None
+
+    async def acquire(self, consent):
+        async with self.lock:
+            if self.timer:
+                self.timer.cancel()
+                self.timer = None
+            selected = self.portable.selected()
+            if selected and selected["mode"] == "warp" and not selected.get("paused"):
+                await self.portable.start(selected)
+                saved = selected
+            else:
+                if self.saved is None:
+                    self.saved = await self.portable.prepare("warp", "", consent, lambda stage: None)
+                saved = self.saved
+            self.users += 1
+            return NetworkConfig.model_validate(saved["network"])
+
+    async def release(self):
+        async with self.lock:
+            self.users -= 1
+            if not self.users and self.saved and not self.timer:
+                self.timer = asyncio.get_running_loop().call_later(60, lambda: asyncio.ensure_future(self.stop()))
+
+    async def stop(self):
+        async with self.lock:
+            self.timer = None
+            saved = self.saved
+            if self.users or not saved:
+                return
+            self.saved = None
+            if self.portable.selected() != saved:
+                await self.portable.stop(saved["id"])
+
+
+def activity(c):
+    return {"running": bool(c.running or c.observation_starting),
+            "has_session": bool(c.vault.read("credentials").get("session")),
+            "connected": bool(c.client and c.client.is_connected()),
+            "signing_in": c.login_client is not None}
+
+
+def busy_account(app):
+    c = app.state.collector
+    if c.export_busy() or c.export_claim or app.state.account_export.busy():
+        raise ValueError("Pause the active export before changing its connection.")
+
+
+async def probe(collector, route, mode, *, outside=True):
+    concrete, owner = route, None
+    try:
+        if route.kind == "mtproxy_auto":
+            owner = "connection-probe-" + secrets.token_hex(16)
+            _, concrete = await collector.pool().acquire(owner, share=collector.share())
+        if concrete.kind in ("socks5", "http", "mtproxy"):
+            address = await netclient.proxy_address(concrete)
+            concrete = concrete.model_copy(update={"host": address})
+        measure = getattr(collector, "route_probe", None) or handshake
+        measured = await asyncio.wait_for(measure(concrete, home_dc(getattr(collector, "client", None))), 25)
+        result = {"telegram_connected": True, "latency_ms": measured["latency_ms"],
+                  "connect_ms": measured.get("connect_ms"), "rtt_ms": measured.get("rtt_ms"),
+                  "method": measured.get("method"), "checked_at": int(time.time()),
+                  "exit_ip": None, "country": None, "warp": None}
+        if not concrete.telegram_only and (outside or mode == "warp"):
+            try:
+                exit_started = time.monotonic()
+                _, _, body = await asyncio.wait_for(netclient.request("GET", "https://www.cloudflare.com/cdn-cgi/trace",
+                    concrete, timeout=15, limit=8192), 20)
+                fields = dict(line.split("=", 1) for line in body.decode("ascii").splitlines() if "=" in line)
+                result.update(exit_ip=str(ipaddress.ip_address(fields["ip"])),
+                              http_latency_ms=round((time.monotonic() - exit_started) * 1000),
+                              country=fields.get("loc") if len(fields.get("loc", "")) == 2 else None,
+                              warp=fields.get("warp") if fields.get("warp") in ("on", "plus", "off") else None)
+            except (OSError, ValueError, TimeoutError, netclient.RouteError):
+                result["exit_check_unavailable"] = True
+            if mode == "warp" and result["warp"] not in ("on", "plus"):
+                raise ValueError("WARP could not be confirmed through this route. Nothing was applied.")
+        return result
+    finally:
+        if owner:
+            collector.pool().release(owner)
+            collector.pool().waiting.discard(owner)
+
+
+class GuidedConnection:
+    def __init__(self, app, profile_id):
+        self.app, self.profile_id = app, profile_id
+        self.portable = PortableRoutes(app.state.collector)
+        self.health = RouteHealth(app.state.collector.store)
+        self.task = self.maintenance = self.reroll_task = None
+        self.plan, self.job, self.reroll_job = None, {"state": "idle"}, None
+        self.retry_at, self.failures = 0, 0
+
+    def entries(self):
+        registry = getattr(self.app.state, "profiles", None)
+        if registry:
+            return registry.entries
+        return {self.profile_id: {"id": self.profile_id, "label": "This account", "app": self.app}}
+
+    def targets(self, body):
+        entries = self.entries()
+        if body.scope == "account":
+            ids = [body.account]
+        else:
+            registry = getattr(self.app.state, "profiles", None)
+            if not registry:
+                raise ValueError("Open the main panel to apply a route to several accounts.")
+            if body.scope == "group":
+                if body.group not in {g["id"] for g in registry.groups()}:
+                    raise ValueError("Choose an existing account group.")
+                ids = registry.members(body.group)
+            else:
+                ids = list(entries)
+        if not ids or any(i not in entries or entries[i].get("app") is None for i in ids):
+            raise ValueError("One of the selected accounts is unavailable. Refresh the account list.")
+        if len(ids) > 25:
+            raise ValueError("Apply a connection to at most 25 accounts at a time using account groups.")
+        return sorted(ids)
+
+    def preview(self, body):
+        rows = []
+        for identifier in self.targets(body):
+            entry = self.entries()[identifier]
+            c = entry["app"].state.collector
+            managed = entry["app"].state.connection.portable.selected()
+            custom = c.network_config().kind != "mtproxy_auto"
+            skip = body.scope != "account" and body.keep_custom and custom
+            rows.append({"id": identifier, "label": entry["label"], "before": managed["mode"] if managed else c.network_config().kind,
+                         "after": body.mode, "skipped": skip, **activity(c)})
+        telegram_only = body.mode == "mtproxy" or body.proxy and body.proxy.telegram_only
+        return {"rows": rows, "outside_enabled": body.outside_enabled and not telegram_only,
+                "separate_instances": body.mode == "warp", "shared_proxy": body.mode == "proxy" and len(rows) > 1}
+
+    def public(self):
+        c = self.app.state.collector
+        selected = self.portable.selected()
+        registry = getattr(self.app.state, "profiles", None)
+        process = self.portable.processes.get(selected["id"]) if selected else None
+        check = c.store.get_setting("connection_check", None)
+        if check:
+            check = {**check, "current": check.get("revision") == revision(c)}
+        if self.job.get("state") == "ready":
+            entries = self.entries()
+            for row in self.job.get("rows", []):
+                if row["id"] in entries and entries[row["id"]].get("app") is not None:
+                    row.update(activity(entries[row["id"]]["app"].state.collector))
+        mode = selected["mode"] if selected else c.network_config().kind
+        running = process is not None and process.returncode is None
+        return {"job": self.job, "current": {"mode": mode,
+                    "route": c.network_config().public(), "policy": c.policy_state(),
+                    "managed": bool(selected), "process_running": running,
+                    "strategy": {k: v for k, v in c.store.get_setting("connection_strategy", {}).items() if k in ("mode", "allow_direct")},
+                    "pool": c.pool().describe(c.route_owner)["pool"] if c.network_config().kind == "mtproxy_auto" else None,
+                    "check": check, "health": self.health.public(mode),
+                    "endpoint": selected.get("endpoint") if selected and mode == "warp" else None,
+                    "reroll": self.reroll_job,
+                    "actions": {"reroll": mode == "warp" and running, "direct": c.route_policy()["exposure"] == "tunnel",
+                                "mtproxy": mode != "mtproxy_auto", "warp": mode != "warp"}},
+                "supported": target_platform() in HASHES["wireproxy"],
+                "accounts": [{"id": i, "label": e["label"]} for i, e in self.entries().items()],
+                "groups": [{"id": g["id"], "label": g["label"]} for g in registry.groups()] if registry else []}
+
+    def start_prepare(self, body):
+        if self.job["state"] == "applying" or self.task and not self.task.done():
+            raise ValueError("A connection operation is already running.")
+        preview = self.preview(body)
+        if not any(not row["skipped"] for row in preview["rows"]):
+            raise ValueError("Every selected account keeps its own route. Change the selection or the keep-custom option.")
+        self.job = {"state": "preparing", "stage": "Preparing connection", "rows": preview["rows"]}
+        self.task = asyncio.create_task(self.prepare(body, preview))
+        return self.job
+
+    async def automatic_route(self, c, portable, body, progress):
+        errors = []
+        for mode in ("warp", "mtproxy", "direct"):
+            if mode == "direct" and not body.allow_direct:
+                continue
+            managed = None
+            try:
+                progress("Checking " + mode)
+                if mode == "warp":
+                    managed = await portable.prepare("warp", "", body.accept_setup, progress)
+                    route = NetworkConfig.model_validate(managed["network"])
+                else:
+                    route = NetworkConfig(kind="mtproxy_auto" if mode == "mtproxy" else "direct")
+                result = await asyncio.wait_for(probe(c, route, mode, outside=body.outside_enabled), 45)
+                if mode == "mtproxy" and body.outside_enabled and c.outside_proxy() is None:
+                    errors.append("MTProxy works, but external services need WARP or a SOCKS5 proxy.")
+                    continue
+                return route, managed, result, mode
+            except (OSError, ValueError, TimeoutError, netclient.RouteError) as exc:
+                if managed and portable.selected() != managed:
+                    await portable.stop(managed["id"])
+                errors.append(str(exc) if isinstance(exc, ValueError) else type(exc).__name__)
+        raise ValueError("No working connection. Try WARP or your own proxy. " + " · ".join(errors))
+
+    async def discard(self):
+        plan, self.plan = self.plan, None
+        if plan:
+            for item in plan["items"]:
+                managed = item.get("managed")
+                if managed and item["app"].state.connection.portable.selected() != managed:
+                    await item["app"].state.connection.portable.stop(managed["id"])
+
+    async def prepare(self, body, preview):
+        items = []
+        try:
+            await self.discard()
+            for row in preview["rows"]:
+                if row["skipped"]:
+                    continue
+                app = self.entries()[row["id"]]["app"]
+                busy_account(app)
+                c, portable = app.state.collector, app.state.connection.portable
+                item = {"id": row["id"], "app": app, "revision": revision(c), "managed": None}
+                items.append(item)
+                def progress(stage):
+                    self.job.update(stage=stage, account=row["label"])
+                progress("Preparing connection")
+                auto_check = None
+                actual_mode = body.mode
+                if body.mode == "auto":
+                    route, item["managed"], auto_check, actual_mode = await self.automatic_route(c, portable, body, progress)
+                elif body.mode in ("warp", "vpn"):
+                    if body.mode == "vpn":
+                        key = wireguard_profile(body.wireguard)["interface"]["PrivateKey"]
+                        for other_id, entry in self.entries().items():
+                            other = entry.get("app")
+                            selected = other.state.connection.portable.selected() if other else None
+                            if (other_id != row["id"] and selected
+                                    and wireguard_profile(selected["profile"])["interface"]["PrivateKey"] == key):
+                                raise ValueError("Another account uses this WireGuard key. Give each account a separate VPN profile.")
+                    item["managed"] = await portable.prepare(body.mode, body.wireguard, body.accept_setup, progress)
+                    route = NetworkConfig.model_validate(item["managed"]["network"])
+                elif body.mode == "proxy":
+                    addresses = await netclient.resolve(body.proxy.host, body.proxy.port)
+                    route = body.proxy.model_copy(update={"local_proxy": any(netclient.internal(a) for a in addresses)})
+                else:
+                    route = NetworkConfig(kind="direct" if body.mode == "direct" else "mtproxy_auto")
+                item["route"] = route
+                item["mode"] = actual_mode
+                item["policy"] = RoutePolicy(exposure="tunnel" if route.kind == "direct" else "hide",
+                                               outside_enabled=body.outside_enabled and (not route.telegram_only or c.outside_proxy() is not None))
+                progress("Checking Telegram and the exit address")
+                item["check"] = auto_check or await asyncio.wait_for(probe(c, route, body.mode, outside=body.outside_enabled), 45)
+                item["checked_monotonic"] = time.monotonic()
+                item["check_key"] = self.check_key(item, actual_mode)
+                item["checked_process"] = portable.processes.get(item["managed"]["id"]) if item["managed"] else None
+                row["check"] = item["check"]
+            self.plan = {"token": secrets.token_hex(24), "expires": time.monotonic() + 600,
+                         "body": body, "ids": self.targets(body), "items": items}
+            self.job.update(state="ready", stage="Review and apply", plan=self.plan["token"], expires_in=600)
+        except BaseException as exc:
+            for item in items:
+                portable, managed = item["app"].state.connection.portable, item.get("managed")
+                if managed and portable.selected() != managed:
+                    await portable.stop(managed["id"])
+            self.job = {"state": "failed", "stage": "Connection was not changed",
+                        "error": str(exc) if isinstance(exc, ValueError) else "Connection check failed: " + type(exc).__name__}
+            if isinstance(exc, asyncio.CancelledError):
+                raise
+
+    def start_apply(self, token):
+        if self.task and not self.task.done():
+            raise ValueError("Wait for the connection check to finish.")
+        if not self.plan or not secrets.compare_digest(token, self.plan["token"]):
+            raise ValueError("This connection preview expired. Check the route again.")
+        self.job = {"state": "applying", "stage": "Applying checked routes"}
+        self.task = asyncio.create_task(self.apply_job(token))
+        return self.job
+
+    async def apply_job(self, token):
+        try:
+            await self.apply(token)
+        except Exception as exc:
+            self.job = {"state": "failed", "stage": "Application stopped",
+                        "error": str(exc) if isinstance(exc, ValueError) else "Connection operation failed: " + type(exc).__name__}
+
+    async def apply(self, token):
+        plan = self.plan
+        if not plan or not secrets.compare_digest(token, plan["token"]) or time.monotonic() > plan["expires"]:
+            raise ValueError("This connection preview expired. Check the route again.")
+        async with AsyncExitStack() as stack:
+            registry = getattr(self.app.state, "profiles", None)
+            if registry:
+                await stack.enter_async_context(registry.lock)
+            if self.targets(plan["body"]) != plan["ids"]:
+                raise ValueError("The account selection changed. Check the route again.")
+            for item in plan["items"]:
+                await stack.enter_async_context(item["app"].state.operation_lock)
+                busy_account(item["app"])
+                if revision(item["app"].state.collector) != item["revision"]:
+                    raise ValueError("A connection setting changed. Check the route again.")
+            if self.plan is not plan or time.monotonic() > plan["expires"]:
+                raise ValueError("This connection preview expired. Check the route again.")
+            self.plan = None
+            self.job = {"state": "applying", "stage": "Applying checked routes"}
+            results = []
+            try:
+                for item in plan["items"]:
+                    results.append(await self.apply_one(item, item.get("mode", plan["body"].mode)))
+                    if results[-1]["applied"]:
+                        item["app"].state.store.set_setting("connection_strategy", plan["body"].model_dump(exclude={"proxy", "proxy_url", "wireguard"}))
+                        if plan["body"].allow_direct or plan["body"].mode == "direct":
+                            item["app"].state.store.set_setting("ip_choice", "auto")
+                if registry and plan["body"].scope == "group":
+                    from .group_settings import record_route
+                    record_route(registry, plan["body"].group, plan["body"].model_dump(),
+                                 [r["id"] for r in results if r["applied"]])
+                self.job = {"state": "applied", "rows": results, "stage": "Connection updated"}
+            finally:
+                for item in plan["items"]:
+                    portable, managed = item["app"].state.connection.portable, item["managed"]
+                    if managed and portable.selected() != managed:
+                        await portable.stop(managed["id"])
+            return self.job
+
+    @staticmethod
+    def check_key(item, mode):
+        return hashlib.sha256(json.dumps([item["route"].model_dump(), item["policy"].model_dump(), mode],
+                                         sort_keys=True).encode()).hexdigest()
+
+    def reusable_check(self, item, mode, portable):
+        checked = item.get("checked_monotonic")
+        if (checked is None or not 0 <= time.monotonic() - checked < 90
+                or item["route"].kind == "mtproxy_auto"
+                or item.get("check_key") != self.check_key(item, mode)
+                or not item.get("check", {}).get("telegram_connected")):
+            return False
+        if item["managed"]:
+            process = portable.processes.get(item["managed"]["id"])
+            if process is None or process is not item.get("checked_process") or process.returncode is not None:
+                return False
+        return True
+
+    async def apply_one(self, item, mode):
+        c, portable = item["app"].state.collector, item["app"].state.connection.portable
+        old = {name: c.vault.read(name) for name in ("network", "outside_proxy", "portable_route")}
+        policy, was_running = c.route_policy(), c.running
+        try:
+            if self.reusable_check(item, mode, portable):
+                check = {**item["check"], "reused_preflight": True,
+                         "preflight_age_seconds": round(time.monotonic() - item["checked_monotonic"], 3)}
+            else:
+                check = await asyncio.wait_for(probe(c, item["route"], mode, outside=item["policy"].outside_enabled), 45)
+            await install(c, item["route"], item["managed"], item["policy"], mode, check)
+        except BaseException as exc:
+            for name, value in old.items():
+                c.vault.save(name, value)
+            c.store.set_setting("route_policy", policy)
+            c.store.append("network.connection_failed", {"error_type": type(exc).__name__, "previous_route_restored": True})
+            if was_running and not c.running:
+                with suppress(Exception):
+                    await c.start()
+            if isinstance(exc, asyncio.CancelledError):
+                raise
+            return {"id": item["id"], "applied": False, "running": c.running,
+                    "error": "Connection was not applied. Previous settings were restored."}
+        previous = old["portable_route"]
+        if previous and (not item["managed"] or previous["id"] != item["managed"]["id"]):
+            await portable.stop(previous["id"])
+        error = None
+        if was_running:
+            try:
+                await c.start()
+            except Exception:
+                error = "Route saved; observation could not resume. Review the account status and resume when ready."
+        return {"id": item["id"], "applied": True, "running": c.running, "check": check, "error": error}
+
+    async def check_current(self, always=True):
+        c = self.app.state.collector
+        await self.portable.restore()
+        selected = self.portable.selected()
+        previous = c.store.get_setting("connection_check", {}) or {}
+        try:
+            result = await asyncio.wait_for(probe(c, c.network_config(), selected["mode"] if selected else "proxy",
+                outside=c.route_policy()["outside_enabled"]), 45)
+        except Exception as exc:
+            failed = {"telegram_connected": False, "checked_at": int(time.time()), "revision": revision(c),
+                      "error_type": type(exc).__name__}
+            with c.store.transaction():
+                c.store.set_setting("connection_check", failed)
+                if always or any(previous.get(key) != failed[key]
+                                 for key in ("telegram_connected", "revision", "error_type")):
+                    c.store.append("network.connection_checked", failed)
+                self.note_health(failed, selected["mode"] if selected else c.network_config().kind)
+            raise
+        result["revision"] = revision(c)
+        changed = any(previous.get(key) != result.get(key)
+                      for key in ("telegram_connected", "exit_ip", "country", "warp", "revision"))
+        with c.store.transaction():
+            c.store.set_setting("connection_check", result)
+            if always or changed:
+                c.store.append("network.connection_checked", result)
+            self.note_health(result, selected["mode"] if selected else c.network_config().kind)
+        return result
+
+    def note_health(self, result, mode):
+        before, status, state = self.health.record(result, result["revision"])
+        event = self.health.transition(mode, before, status, state)
+        if event:
+            self.app.state.collector.store.append(*event)
+
+    def start_reroll(self, kind):
+        if self.reroll_task and not self.reroll_task.done():
+            raise ValueError("A WARP re-roll is already running.")
+        if self.task and not self.task.done() or self.plan:
+            raise ValueError("Finish the connection change before re-rolling WARP.")
+        busy_account(self.app)
+        selected = self.portable.selected()
+        if not selected or selected.get("mode") != "warp" or selected.get("paused"):
+            raise ValueError("This account does not use a running WARP tunnel.")
+        self.reroll_job = {"state": "running", "kind": kind, "trigger": "operator", "tried": [], "trying": None,
+                           "started_at": time.time()}
+        self.reroll_task = asyncio.create_task(self.reroll(kind, "operator"))
+        return self.public()
+
+    def automatic_reroll(self):
+        selected = self.portable.selected()
+        if (not selected or selected.get("mode") != "warp" or selected.get("paused")
+                or self.reroll_task and not self.reroll_task.done() or self.task and not self.task.done()
+                or self.plan or not self.health.reroll_due("warp")):
+            return
+        try:
+            busy_account(self.app)
+        except ValueError:
+            return
+        self.reroll_job = {"state": "running", "kind": "automatic", "trigger": "automatic", "tried": [],
+                           "trying": None, "started_at": time.time()}
+        self.reroll_task = asyncio.create_task(self.reroll("automatic", "automatic"))
+
+    async def reroll(self, kind, trigger):
+        c = self.app.state.collector
+        job = self.reroll_job
+        saved = fallback = self.portable.selected()
+        settled = False
+        try:
+            if not saved or saved.get("mode") != "warp" or saved.get("paused"):
+                raise ValueError("This account does not use a running WARP tunnel.")
+            route = NetworkConfig.model_validate(saved["network"])
+            dc = home_dc(getattr(c, "client", None))
+            measure_route = getattr(c, "route_probe", None) or handshake
+
+            async def measure(label):
+                job["trying"] = label
+                try:
+                    value = (await asyncio.wait_for(measure_route(route, dc), 25))["latency_ms"]
+                    job["tried"].append({"endpoint": label, "ms": value})
+                except Exception as exc:
+                    value = None
+                    job["tried"].append({"endpoint": label, "error": type(exc).__name__})
+                return value
+
+            original = saved.get("endpoint")
+            before = after = await measure(original or "default")
+            chosen, identity_changed = original, False
+            if kind in ("endpoint", "automatic"):
+                best = before
+                for candidate in WARP_ENDPOINTS:
+                    if candidate == original:
+                        continue
+                    if best is not None and best < GOOD_MS:
+                        break
+                    try:
+                        await self.portable.restart({**saved, "endpoint": candidate})
+                    except Exception as exc:
+                        job["tried"].append({"endpoint": candidate, "error": type(exc).__name__})
+                        continue
+                    latency = await measure(candidate)
+                    if latency is not None and (best is None or latency < best):
+                        best, chosen = latency, candidate
+                current = {**saved, "endpoint": chosen} if chosen else {k: v for k, v in saved.items() if k != "endpoint"}
+                await self.portable.keep(current)
+                fallback, settled = current, True
+                after = await measure(chosen or "default")
+            else:
+                current = saved
+            if kind == "identity" or kind == "automatic" and (after is None or after > SLOW_MS):
+                job["trying"] = "identity"
+                reference, settled = after, False
+                updated, previous = await self.portable.new_identity(current)
+                settled = True
+                fresh = await measure("new identity")
+                if fresh is None or reference is not None and fresh > reference * 1.2 + 200:
+                    await self.portable.keep(current, previous)
+                    after = await measure(chosen or "default")
+                else:
+                    current, after, identity_changed, chosen = updated, fresh, True, None
+            self.health.rerolled(trigger)
+            c.store.append("network.warp_rerolled", {
+                "kind": kind, "trigger": trigger, "before_ms": before, "after_ms": after,
+                "endpoint_before": original or "default", "endpoint_after": current.get("endpoint") or "default",
+                "identity_changed": identity_changed, "attempts": len(job["tried"]), "meaning": REROLL_MEANING})
+            job.update(state="done", trying=None, before_ms=before, after_ms=after,
+                       endpoint=current.get("endpoint"), identity_changed=identity_changed, finished_at=time.time())
+            with suppress(Exception):
+                await self.check_current(always=True)
+        except Exception as exc:
+            if fallback and not settled:
+                with suppress(Exception):
+                    await self.portable.keep(fallback)
+            job.update(state="failed", trying=None, finished_at=time.time(),
+                       error=str(exc) if isinstance(exc, ValueError) else "WARP re-roll failed: " + type(exc).__name__)
+            c.store.append("network.warp_reroll_failed", {"kind": kind, "trigger": trigger,
+                                                          "error_type": type(exc).__name__})
+
+    async def control(self, action):
+        c = self.app.state.collector
+        busy_account(self.app)
+        saved = self.portable.selected()
+        if not saved:
+            raise ValueError("This account does not use a managed tunnel.")
+        if action == "stop":
+            await c.stop()
+            saved["paused"] = True
+            c.vault.save("portable_route", saved)
+            await self.portable.stop(saved["id"])
+        else:
+            saved.pop("paused", None)
+            c.vault.save("portable_route", saved)
+            await self.portable.restore()
+        c.store.append("network.tunnel_control", {"action": action, "mode": saved["mode"]})
+        return self.public()
+
+    async def cancel(self):
+        if self.job["state"] == "applying":
+            raise ValueError("Wait for application to finish before changing the connection again.")
+        if self.task and not self.task.done():
+            self.task.cancel()
+            await asyncio.gather(self.task, return_exceptions=True)
+        await self.discard()
+        self.job = {"state": "idle", "stage": "Connection draft discarded"}
+        return self.job
+
+    async def maintain(self):
+        health_at = 0
+        while True:
+            await asyncio.sleep(10)
+            if self.plan and time.monotonic() > self.plan["expires"]:
+                await self.discard()
+                self.job = {"state": "expired", "stage": "Preview expired. Check the route again."}
+            if time.monotonic() < self.retry_at:
+                continue
+            try:
+                await self.portable.restore()
+                self.failures = 0
+            except Exception:
+                self.failures += 1
+                self.retry_at = time.monotonic() + min(300, 10 * 2 ** min(self.failures, 5))
+            if time.monotonic() < health_at or self.task and not self.task.done() or self.plan:
+                continue
+            c = self.app.state.collector
+            strategy = c.store.get_setting("connection_strategy", {})
+            if not strategy:
+                continue
+            health_at = time.monotonic() + 60
+            try:
+                await self.check_current(always=False)
+                self.automatic_reroll()
+            except Exception:
+                if strategy.get("mode") != "auto":
+                    self.automatic_reroll()
+                    continue
+                try:
+                    busy_account(self.app)
+                    body = ConnectionDraft(**{**strategy, "scope": "account", "account": self.profile_id,
+                        "outside_enabled": c.route_policy()["outside_enabled"]})
+                    self.task = asyncio.create_task(self.recover_automatic(body))
+                except Exception:
+                    health_at = time.monotonic() + 120
+
+    async def recover_automatic(self, body):
+        try:
+            await self.prepare(body, self.preview(body))
+            if self.plan:
+                await self.apply(self.plan["token"])
+        except Exception:
+            self.job = {"state": "failed", "stage": "No connection", "error": "Automatic recovery failed. Check the connection in Settings."}
+
+    async def halt(self):
+        for task in (self.task, self.maintenance, self.reroll_task):
+            if task:
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+        await self.discard()
+
+    async def close(self):
+        await self.halt()
+        await self.portable.close()

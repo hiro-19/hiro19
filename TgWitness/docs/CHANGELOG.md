@@ -1,0 +1,610 @@
+[TgWitness](../README.md) / [Documentation](README.md) · [Project reference](README.md)
+
+![Project reference](assets/presentation/chapter-project.svg)
+
+# Changelog
+
+<details>
+<summary>On this page</summary>
+
+- [Unreleased](#unreleased)
+- [0.9.3 preview · 11 November 2026](#093-preview--11-november-2026)
+- [0.9.2 preview · 10 November 2026](#092-preview--10-november-2026)
+- [0.9.1 preview · 5 November 2026](#091-preview--5-november-2026)
+- [0.9.0 preview · 4 November 2026](#090-preview--4-november-2026)
+- [0.8.1 preview · 2 November 2026](#081-preview--2-november-2026)
+- [0.8.0 preview · 2 November 2026](#080-preview--2-november-2026)
+- [0.7.1 preview · 1 November 2026](#071-preview--1-november-2026)
+- [0.7.0 preview · 31 October 2026](#070-preview--31-october-2026)
+- [0.6.1 · 27 October 2026](#061--27-october-2026)
+- [0.6.0 · 27 October 2026](#060--27-october-2026)
+- [0.5.1 · 27 October 2026](#051--27-october-2026)
+- [0.5.0 · 26 October 2026](#050--26-october-2026)
+
+</details>
+
+## Unreleased
+
+- Bulk account pause/resume prevents overlapping confirmations and discards stale
+  operations after session resets. Failed responses no longer claim that the
+  collector was unchanged; account states are refreshed without repeating commands.
+- Overview clears cached summaries and charts on account or sign-in changes and ignores responses from earlier sessions. Loading and failed reads have separate states, with a retry that respects the server's requested delay and preserves keyboard focus. Failed refreshes retain the same workspace's last successful data with its timestamp.
+- Account cards show the collector heartbeat and the last received Telegram event as separate times.
+- Secret Chats add local phrase search with matching-message navigation, keyboard
+  controls and highlights that retain the surrounding conversation. Searches stay
+  within loaded records and are cleared at workspace/session boundaries.
+- Loading older Secret Chat records preserves the visible message and its reading
+  position; refreshes retain the current search match and unsent message draft.
+- Selected cloud-chat messages can be downloaded as PNG with Light, Dark or
+  Classic styling, a preview and page navigation. Images retain message numbers,
+  UTC times, reply references, attachment labels and edit/deletion marks. Long
+  messages continue across pages. Rendering stays in the browser, masks possible
+  secrets and clears the preview on lock or workspace/chat changes.
+- **Save chat as images** renders up to the latest 2,000 saved messages of a chat.
+  Every page ends with its journal record numbers, the key fingerprint, the check
+  command and a QR code. **Download signed ZIP** adds `pages.sig.json`, signed with
+  the workspace key and journaled as `export.image_attested`;
+  `verify.py page-01.png pages.sig.json` detects a changed page, statement or key, and
+  `--evidence` confirms every record against a signed evidence ZIP.
+- Pressing an author's name in a chat opens a person card beside the messages with
+  the saved profile, photos, gifts, links, activity timeline and journal records,
+  **Refresh profile** and **Build report**; the chat stays where it was.
+- The person card has a **Rhythm** section counted in UTC from the author's saved
+  messages in that chat: active days, conversations started after 6 hours of
+  silence, median reply time, the longest run in a row, the night share and a
+  weekday × hour heatmap. Only the latest 20,000 messages are counted.
+- Cloud-chat history can be forwarded in order to a new private channel or
+  supergroup, or an existing channel/group with posting access. A preview fixes
+  the history boundary before an explicit start. Transfers retain albums, shared
+  pacing and FloodWait, support pause/resume/cancel, and journal confirmed sends
+  and skips. Unknown send results require review; unknown creation results never
+  trigger an automatic second creation. Available to the main administrator.
+- Forwarding restores durable progress after journal failures and releases the
+  account after failed starts, resumes and shutdown writes. Cancellation survives
+  rejected requests and a final empty history page; stale polling errors no longer
+  replace newer dialog feedback.
+- The account report's activity map links each large channel or supergroup gap to
+  its marked position in the paginated transcript; wide tables scroll inside their
+  cards on narrow screens.
+- Long transcripts get a page index with a UTC month calendar, date and record
+  ranges per page, and first/last/nearby page links that work without JavaScript.
+- A timed-out dedicated media connection falls back to the standard file connection
+  instead of pausing the download; the data center retries its dedicated route once
+  per minute in the background.
+- Report packaging reuses parsed translation catalogues, cutting the packaging time
+  of a 14,691-message export by about 16 %.
+- `/api/trace` shows the main administrator recent panel API requests of the workspace with method, route template, status and duration, plus median, 95th percentile and slowest time per route. Request paths, parameters and bodies are not recorded.
+- A FloodWait while reading history or exporting a chat no longer pauses live
+  observation. The wait stays limited to Telegram's history method, which the
+  account's other history readers already respect; live updates keep arriving.
+- Chat pagination ends the opening animation before preserving the reading
+  position. Reduced-motion mode disables that animation entirely, avoiding an
+  intermittent shift when earlier messages appear.
+- The two newest paragraphs of the website notice are translated in all 25
+  catalogues instead of appearing in English.
+- The static demo's Console link opens the correct route in a new tab.
+- The chat list adds quick filters with counts for priority chats, captured changes
+  and access/recheck issues, removable filter chips, multiword name/ID search and
+  keyboard navigation. Large lists render in batches of 80 while keeping the open
+  and focused chat available. Clearing filters preserves pending priority requests.
+- Swarm and the system log fit phone screens: account cards, tools and log actions
+  wrap instead of widening the page.
+- Connection: the route check no longer creates a new Telegram authorization key every minute; it measures one unauthenticated MTProto round trip to the account's data center and reports the connection and round-trip times separately. A moving average marks a route slow or unavailable in the journal; a slow WARP route can be re-rolled to another Cloudflare endpoint or a new WARP identity, automatically at most once every 30 minutes. A WARP endpoint name that resolves to IPv6 and IPv4 now uses IPv4.
+- Panel speed: the panel opens with one `/api/bootstrap` request instead of five in a row; the live update stream stays open while the tab is briefly hidden, reconnects within half a second after its regular end and honours `Too many live streams`; settings, preferences and the account list are no longer requested twice on opening; coverage markers in a chat use `/api/chats/{id}/coverage` with only the records of that chat and the account; avatars of a list arrive in one `/api/avatars` request.
+- An idle Telegram connection stays open for two minutes after the last panel action instead of closing after each one.
+- **Overview** opens first and shows whether observation runs, since when and why it stopped, with **Resume now**, messages and files per minute, Telegram waits today, the most active and the longest silent chats, and the latest independent timestamps. The browser tab icon shows a coloured dot for observing, paused and exporting.
+- The chat list says why a chat can no longer be read, also marks a chat as restricted when the account's dialogs report it so, and shows when Telegram asked the account to wait. A chat restricted by Telegram is recorded once as `source.restricted` and skipped by **Load full history**; one failing chat no longer pauses the whole history run.
+- Bulk reads learn their pace per Telegram method instead of sharing one delay, and a newly connected account starts at half speed (**Parameters → Performance**, where **Attachments downloaded at once** is also set).
+- Files use dedicated `media_only` endpoints when Telegram advertises them, otherwise they share the existing connection. Dedicated file connections start with a file request without subscribing to updates. Their number grows from one while files queue up, up to **File connections per Telegram data center** (**Parameters → Performance**, 4 by default, 0 for the previous behaviour), and shrinks when Telegram asks to slow down; a large file is read in parallel parts and written in order. Closing the pool waits for connection cleanup, and completed downloads release cancelled part readers before returning.
+- When live observation, a history run and an export in one workspace ask for the same file at once, they share the completed download, including when an export finishes first. Reused bytes are hashed again, copied bytes are checked and each observation records its source; a missing or corrupt temporary copy triggers a fresh download. Accounts retain separate downloads and access checks.
+- Cancelling a Swarm export stops its owned operation before Retry or Forget becomes available. Finished exports remain available, and restarting restores selected and pinned accounts. Chat coverage follows workspace changes; completing a queued submission preserves newer text entered into the form.
+- Live exports advance their signed page count only after the ZIP commit. Cancellation finishes with a signed stopped state, including cancellation during the final flush; disk failures retain the last committed snapshot. Cleaning incomplete history scratch files preserves the separately sealed live snapshot.
+- A history indexing failure pauses the run and preserves its cursor for retry. An unavailable chat remains a per-source failure and does not block other chats.
+- Parallel history attachment workers each appear in metrics; workers on the same priority lane no longer overwrite each other's slot counts.
+- At most five Telegram connections are set up at the same moment across all accounts on a server, including reconnects and route checks, and WARP registrations are paced, so a cold start of many accounts no longer times out.
+- A single-chat export now writes a signed ZIP while it reads: pages of up to 2,000 messages, each signed as soon as it is written and at the latest ten seconds after reading. **Download messages read so far** saves it at any moment, also after a cancelled or failed export; every page is JSONL for tools and HTML for reading, and the `verify.py` inside checks the chain of page seals. A stop in the middle of a write leaves the archive valid up to its last seal: TgWitness restores it at the next start, and `verify.py` checks a damaged copy up to that seal and reports the bytes after it.
+- `verify.py` checks a large archive with several processes: members are hashed in parallel and record signatures are checked by worker processes while the chain, coverage and bindings are followed in order. A 10.8 GB archive with 400,000 records took 58.9 s in one process and 8.4 s with 16 (`--jobs`, default one per CPU up to 16). Timestamp anchors and retained checkpoints no longer re-read the journal from the start each: an archive with 100 anchors went from 144 s to 23 s in one process.
+- Remaining-time texts in 18 interface languages, Russian, Ukrainian and Arabic among them, use the language's own hour and minute words instead of a stray `h` or `min`.
+- **Swarm → Swarm export**: paste @usernames, t.me links or chat IDs and every free account takes the next chat from one queue and exports it into its own workspace (**Exports → Prepared exports**); the results can be downloaded from the Swarm page. Accounts that observe or are busy take no task; a Telegram wait or missing access moves the chat to another account, and joining a chat is never automatic. Each chat can be given another priority, moved to another account in one step, cancelled or tried again.
+- Distributed export: when Telegram asks an account to wait 15 seconds or more, or an account reads clearly slower than one that has nothing left to do, its range continues on another account from the last signed page instead of waiting. New jobs use the `tgwitness-distributed-pages-v2` checkpoint format, in which the first page signed by the new account names the previous one (`handover_from`); the verifier accepts v1 and v2 and still refuses an unannounced change of account. Messages in the archive are attributed to the account that signed their page.
+- **Parameters → Performance → Faster journal writes** (off by default) writes each signed record without waiting for the disk, about twice as many records per second in the test (342 → 809). A power cut or a crash of the computer can then lose the last records, which may already be in a published checkpoint; a crash of TgWitness itself loses nothing. Rebuildable working indexes of account, chat and distributed exports always write this way.
+- **Attachments downloaded at once** limits each account's attachment worker queue: downloads start at two, add one after each round of files without a Telegram wait and halve when Telegram asks a file download to wait. Live priority lanes and selected history workers have separate allowances. `/api/metrics` shows the current number per queue.
+- Workspaces of one server keep one copy of an identical attachment: a newly saved file becomes a hard link to the same file of another workspace after both are hashed again, so three workspaces that save the same channel take the space of one ([storage](STORAGE.md#when-the-disk-is-filling-up)). Unused shared copies are removed at start; workspace files are never removed by this.
+- A handover extract now proves that each of its records belongs to the full journal: `proofs.jsonl` holds the Merkle path of every record and of the journal head to the root in the signed manifest, and `verify.py` checks them without the full journal. `verify.py extract.zip --range=CHAT:FROM-TO` confirms the requested messages of a chat are in the extract. Older extracts verify as before.
+- When several attachment downloads of one chat need a fresh file reference at the same moment, their message reads are joined into one request of up to 100 numbers within 50 ms (300 reads in five chats took five requests in the test instead of 300); a message Telegram cannot decode is then read alone so the others still get theirs. A distributed export reads missing reply parents for context in requests of 100 instead of one by one.
+- Workspaces open six at a time when TgWitness starts, so their tunnels and Telegram connections come up together instead of one after another, and the source measurement of the run receipt is taken once per process instead of once per workspace. Forty workspaces with 3,000 records each started in 19.9 s instead of 33.5 s.
+- `/api/metrics` gives Prometheus the state, speed, file queue, Telegram waits, journal size and connection setups of every account; a scrape job and a Grafana dashboard are in `deploy/` ([metrics](../deploy/README.md#metrics-and-flight-record)). **System log → Save flight record** downloads the last 10,000 log lines and journal record kinds of the process without record contents; on Linux and macOS `kill -USR1` writes the same file.
+- **Swarm** selects accounts with a tick on each card or **Select all shown** and runs one action on all of them at once: **Start observation**, **Pause observation**, **Re-roll WARP**, **Check journals** (each signed record and the retained checkpoint) or **Export selected** (each account's signed export in one ZIP with a list signed by the main workspace). The action starts for every account at once, and a panel fills in each account's result as it arrives, with the reason when one is skipped. **Start all** and **Pause all** of a group run up to eight accounts at a time instead of one after another.
+- **Swarm** shows every account at work on the server, refreshed every second: its task and progress, journal records per second, files in the queue, file connections, Telegram waits, the route and the latest problem, with filters for busy, idle, waiting, blocked and disconnected accounts. Only the main administrator sees it.
+- Panel addresses `/home`, `/network-topology`, `/case-board`, `/map` and `/logs` lead to their pages. Keys: `g` then `h`, `c`, `j`, `e`, `a`, `w` or `s` open a page, `j` / `k` move between chats, `?` lists them. **Return to recommended** shows the changes before applying them; repeated lines in the system log are counted instead of repeated; the account export summary names why an export needs attention; DNS lookups on the system map are attributed to the component that made them.
+- History's messages-first mode uses the selected attachment worker count after
+  reading text. Changing the capture preference during a run no longer leaves its
+  deferred attachments without workers; pause and resume retain queued jobs.
+- Stopping observation cancels a pending start, including an automatic start after
+  history. A completed history task cannot restart observation after Stop. New
+  observation, history, export and connection changes are refused until connection
+  cleanup has finished; existing jobs keep their account reservation.
+- Interrupted startup retains the count of buffered updates that were not recorded,
+  writes a coverage gap and keeps the previous update position for a later retry.
+- Live journal streams recheck access after reading and delivering Case Board
+  updates. Revoked sessions and reduced chat permissions cannot receive a prepared
+  journal batch from the previous access scope.
+- Case certificates state that copied timestamp receipts still need independent
+  verification of their signatures, trust chains and checkpoint binding.
+- Concurrent connection restores share one client and one connection attempt per
+  workspace. Interrupted setup releases waiting callers; an attempt whose credentials,
+  client or authorization state changed cannot report success for the replacement.
+- Repeated attachment jobs stay queued while a matching transfer runs, leaving
+  download slots available for other files. Priority, retry delays and history
+  ownership are retained. Existing queues gain the transfer index without rewriting
+  signed observations, and every completed job still records its own signed outcome.
+
+- Chat exports download repeated attachment representations once per export directory
+  and verify unrelated retained files concurrently. Each message keeps its own file
+  reference; size and SHA-256 checks still run before reuse. Unique temporary paths
+  and synchronized file-index updates preserve parallel copies, cancellation and retry.
+
+- Attachment jobs for the same file now wait for one transfer and independently verify the saved bytes before reuse, preserving a signed outcome for each observation. Different files and server-hash reads run concurrently; hash requests share the bounded file-request pool and no longer hold the ordinary Telegram request queue. Cancellation, incomplete hash reads and failed transfers leave later jobs able to continue.
+
+- Connection setup reuses a fresh preflight result for the same route instead of repeating its handshake immediately on Apply. Startup reads access and workspaces concurrently, chat export discovery waits for a selected chat, and rapid wizard/preference edits save only the latest queued state. Stale route results are checked again; workspace changes cancel unsent saves.
+- Initial chat loading retries failed stages with a persisted delay and bounds stalled requests by the operation timeout. History is saved before optional profile enrichment; completed stages survive restart and are not repeated during a retry. Chats and Home expose delayed work. Snapshot reads reject messages from another chat, invalid ID order or an older-page boundary violation, and stop when the source is disabled; saved records and signed interruption evidence are retained.
+- Live updates, operator requests, background checks and exports use separate request lanes. Slow responses do not hold another lane; pacing and Telegram waits for the same method remain shared. Updates stay ordered within each chat. Account-wide deletions also order later updates across chats. Shutdown joins pending handlers before recording observation stopped and records a gap if the drain deadline expires. Extra short polling covers up to 50 selected channels, with priority sources first, using Telegram’s interval (10 seconds by default, bounded to 2–120 seconds). Other enabled chats continue normal update delivery. Opening a chat bypasses history pacing and history slots while still respecting server waits.
+- Observation no longer has to be paused for exports on the same account. An account export, a chat export and loading messages into a chat run while observation keeps recording; one export uses an account at a time, and full history can also run alongside observation. The account page, the Home dashboard and the export dialogs say which tasks wait for each other.
+- Chats: opening an enabled chat that has no saved messages loads its latest 100 messages from Telegram, and **Load earlier messages from Telegram** at the top of a chat reads the next older page. Chats added by the folder and whole-account scopes get their latest messages once, as set under **When a new chat or bot appears** (100 by default for new workspaces). These reads are recorded as history snapshots.
+- Account export: while it discovers chats, the job card shows the stage, the number of chats found, the chat being checked and a progress bar. Chats are checked up to four at a time.
+- Accounts: when Telegram rejects an account, panel actions and a paused account export name the cause: frozen, banned, deleted, or a session used in two places at once. A frozen account is detected as soon as it connects, not only while observing. An independent login checks the donor for a freeze before asking Telegram to approve the new session. If Telegram refuses the donor before approval, the unapproved key is discarded, so the import can start again; another donor also replaces a saved key that Telegram reports as not signed in. A key that is signed in or waiting for its two-step password is kept.
+- Timestamps: a pass that could not run because no route for outside requests existed is repeated as soon as a route appears, and such a pass no longer counts as a failure of the timestamp services.
+- Network map: the line of a connected account passes through the published Telegram range that contains its data centre address. Certificate status requests of timestamp services are shown under **TSA · OTS**; **Unlisted host** is kept for requests no component accounts for.
+- Accounts: each connected account has **Profile and privacy** and **Account security**; the account page has **Profile and privacy** next to sessions and the two-step password. The check list at the end of first-run setup groups external services by kind.
+- The investigation notebook, participant timeline and profile collection are translated into all panel languages.
+- Live observation and resumable history can run together, with independent pause controls and separate attachment ownership. Message and history batch writes run in worker threads; shutdown drains received messages before sealing the stop record.
+- Full history reads up to three chats concurrently, with a resumable cursor for each. Whole-account and folder scopes inspect all accessible dialogs, including archived chats. The overview shows concurrent tasks, history progress and the attachment queue; history can start observation before reading older messages.
+- Account-export pages are sealed in a drained worker thread. Independent recorder kinds have separate command locks, so a slow browser recorder does not block the other recorders. Recorder controls clear stale state after errors and allow disabling a connection without completing unused fields.
+- Delayed history replies retain their signed observations without replacing a live message version received after the history request began.
+- Account exports continue past unavailable-message placeholders, including at the newest-message boundary, and reject history returned for another chat or outside the saved page boundary. Authorization loss pauses acquisition without sealing an unfinished page as terminal.
+- Resume verifies saved account-export pages in the background, keeping panel controls available and showing the verification stage. An immediate pause after start or resume leaves a resumable job. Pausing during verification retains the account reservation until the verification worker finishes safely.
+- Telegram request queues recheck the affected method's saved FloodWait deadline when a queued request reaches its turn, including file-download slots and paced history requests.
+- An inactive Takeout approval wait no longer disables starting a separate regular-session export. Active jobs still reserve their account; exports on other accounts remain independent.
+- Page updates respect the server's `Retry-After` delay when reconnecting after a stream-limit or temporary-service response.
+- **What the other side sees** in Settings, the eye icon in a chat and the same control in **Pseudo-secret** choose what this account shows to the other side of a chat: read receipts (never, with the **Mark as read** button, after a message sent from the panel, or when the chat is opened), notices that one-time media were opened, story views, the typing status (hidden, shown while the operator types, or shown before a message is sent) and sending without sound. The choice is made for the workspace and can differ for one chat. **Invisible** is the default and sends none of them. Each request sent to Telegram is recorded with the operator and its result; Telegram decides when the other side receives a read receipt. Typing by the other side is shown in the chat and can be recorded.
+- Update sequence: the journal records each stretch of Telegram's update numbering (`pts`) that the collector received without a hole as `coverage.sequence`, for the account (private chats and basic groups) and for each channel or supergroup. `GET /api/continuity` answers for an interval whether the sequence is unbroken, with each break, its reason and where the sequence is whole again. `verify.py` prints the same under **Sequence continuity**. Intervals without such records are not claimed.
+- Deletions: a `message.deleted` record states who could have deleted the message from what the collector knew when the notice arrived: not this account, or possibly this account from another session. Where the account is an administrator, the chat's admin log is read every 60 minutes (**Parameters**) and names the account that deleted or edited. One notice that removes at least ten saved messages of a private chat with nothing left between them is marked as a suspected clear of the history. Chats show how many messages were deleted before they were saved; in a priority chat such notices shorten the recheck interval until one interval passes without them.
+- Long-term preservation: evidence mode keeps an RFC 4998 Evidence Record for each retained checkpoint and renews it with a new time stamp or a new hash tree before the earlier protection weakens. ASiC-E exports carry `META-INF/evidencerecord.ers`, ZIP exports the checkpoint records under `anchors/`. `verify.py` checks the hash trees, the renewals and their order.
+- `verify.py` checks time stamps and certificates signed with DSTU 4145-2002 (GOST 34.311-95 or DSTU 7564 Kupyna), GOST R 34.10-2012 with Streebog and SM2 with SM3. External signatures made with these algorithms are checked in the panel too.
+- Documentation packages for a Ukrainian criminal proceeding (`UA`) carry a draft inspection protocol for the official who conducts the action, a technical annex for the expert, a file inventory and a media handover act under `data/court/`. Legal guidance has full profiles for 31 jurisdictions; Croatia, Georgia, Kazakhstan, Luxembourg, Malta and Slovenia are new.
+- Independent capture reads AyuGram's local database (`ayudata.db`) as a second, unsigned observer: `python -m tgwitness_capture ayugram interpret` signs its rows into the recorder's journal and `ayugram reconcile` compares deleted and edited messages with a TgWitness evidence ZIP.
+- The protection mode **Mossad** is named **Maximum**; a saved choice carries over. Timestamps are on in every setup goal.
+- Exports: the signed archive can be downloaded as an ASiC-E container (ETSI EN 319 162-1), CAdES-signed with the workspace's certificate at level B-B, or B-T when timestamping is on. **External signature** on a prepared export hands out the bytes to sign and attaches a CMS (CAdES) `.p7s` made with the signer's own key, such as a qualified signature. The panel shows whether the signature covers the export, verifies and chains to a root certificate the operator supplied; revocation and trusted lists are not checked. `verify.py` reads ASiC-E containers and names the entries it skips. The exports list marks a container of more than 1000 files, which EU DSS with default settings refuses.
+- PDF reports are signed as PAdES baseline (ETSI EN 319 142-1, `ETSI.CAdES.detached`) instead of `adbe.pkcs7.detached`, at level B-B, or B-T with a signature time stamp when timestamping is on and a timestamp authority answers over the route for requests outside Telegram. The report states that the program's certificate is self-issued and not qualified.
+- Live collection: updates held while observation starts are processed before later updates, so a deletion can no longer be recorded before the message it removes. Records written for a live update carry `received_at` and `processing_delay_ms`. A message and the records that depend on it are written in one transaction. When the delivering update carries the same message as `raw`, `transport_update.message` refers to it instead of storing a second copy.
+- Coverage records: an update from a chat whose scope cannot be checked is recorded as a `scope_undetermined` gap with its message IDs instead of being skipped silently, and the chat is looked up again after five minutes. A full startup buffer records how many updates were dropped in each chat and their message ID range. `collector.error` names the update, chat and message IDs it concerns. A start or stop security baseline states when the 777000 log could not be read.
+- Panel and storage: reads use their own read-only database connections and no longer wait for, or hold up, journal writes; opening messages, authors, avatars, media for restricted links and the activity overview, and choosing chats for state snapshots, run outside the event loop. Recheck positions are stored per chat instead of rewriting one setting per chat or skipped message. A full profile refresh queue is recorded for a user once every ten minutes.
+- Account export: a chat split over several pages shows its charts and assessment on the first page only; later pages open at the messages. The last step of first setup shows how many chats are chosen and which account is connected.
+- Coverage gaps in a chat: starts and stops of the program before observation first ran are no longer listed as a gap, so a new workspace does not open with a gap made by its own setup. A gap recorded at one moment shows its reason, and the journal words three more reasons in the panel language.
+- Reports count service messages under `Service messages`; the label `Service` stays for timestamp services. The chat list shows one priority star in each row instead of two, and the star stays visible in the selected row. On a phone the account counters no longer break a word in the middle.
+- Chat export by link: progress follows the number of messages read, so a chat read as one range no longer sits at 0% until the end. The states `running`, `selecting` and `cancelled` are translated, and the main workspace is named in the panel language in the list of accounts and on the system map.
+- Panel: counts on every page use the panel language's number format, not the browser's. The **Just download** goal says that it saves chats and photos and where other files are chosen. The capture link on the sign-in screen no longer touches the button above it.
+- Journal and **Pseudo-secret**: how a Secret Chat ended, its acceptance in TgWitness and the route check are shown in the panel language. The password hint for ZIP exports names the stronger encryption offered beside it. `verify.py unseal-password` says that the password is wrong or the file was changed instead of printing `InvalidTag`. The daily chart keeps its date labels in right-to-left languages. Russian text uses one word for the handover extract.
+- Verifier: the readable answer lists each timestamp service once, with the number of checkpoints and their time range, instead of one entry for every proof; a journal with 33 checkpoints went from about 1,100 lines to about 180. A Bitcoin timestamp confirmed with `--check-bitcoin` is shown as confirmed. Observation periods, gaps and session counts are shortened to the first ten with a count of the rest, and times read `2026-11-14 01:06:05 UTC`. Timestamp warnings are translated.
+- Evidence, chat and handover archives: `README.txt` opens with what the archive is and lists `analytics.json`; the verification steps are in `START_HERE.txt` only.
+- Panel: the first workspace is named `Main workspace` instead of `Main account`, which also named a kind of account. Account export offers the report in the panel language. The chat picker shows each chat's type and ID and counts the selection. The **Gaps** tile turns pink once a gap is recorded. File sizes use binary units in the panel language. The chat list no longer scrolls sideways. The parallel-session warning shows only the paragraphs for the chosen import mode. A plain word after `token`, `password` or `secret` is no longer masked as a secret. Client checks and profile warnings on the account page are worded and translated. Russian text uses the letter `ё` throughout.
+- Account export archive: the chat list, the report and each chat page say when a chat was not exported or was exported in part, instead of showing zero messages. `README.txt` is written in the report language, with English after it, and lists every file with its purpose; the verification steps stay in `START_HERE.txt`. The reason a file was left out is shown as text in all 25 languages, and a single attachment is labelled in the singular.
+- Account export progress names the chat being read instead of its ID. Counters across the panel use the panel language's number format. Russian wording corrected in the export job card, the export page and the import form, including a line that said a waiting job resumes after TgWitness stops.
+- **Pseudo-secret** shows the other side's name and username when the account knows them, with the user ID beside it, and applies Secret Chat updates that Telegram delivers while the account is still connecting. Account export pages show times to the second. The first-setup estimate says `Less than 1 MB` instead of `About 0 MB`.
+- Stopping the panel keeps the main workspace's route up until its Telegram connection has closed, so shutdown no longer spends a minute on reconnection attempts through a tunnel that is already gone.
+- **Pseudo-secret** notices within half a minute when the other side ends a chat: while a chat is open the account asks Telegram for missed updates every 30 seconds, because Telegram does not always push the ending to a connected session.
+- `verify.py` given an unpacked folder says to pass the original ZIP instead of failing with a key error. The journal names the session records written when observation starts and shows their values instead of raw English notes.
+- The goal choice says what differs: **Follow chats** keeps panel actions, **Evidence for a case** saves every file, confirms each record and turns sending, joining and accepting off. **Pseudo-secret** explains that notice as a warning and points to the goal. The route check shows its time and latency in the panel language, and its buttons match the rest of the panel.
+- **Pseudo-secret**: sending to a chat that has ended, or that the other side has not accepted yet, says so instead of failing, and ending a chat writes one journal record instead of two. Account export pages show the reason an attachment was not saved in the report language, and the Telegram-style chat list labels message counts as `Messages: N`.
+- **Pseudo-secret** installs its protocol module with one button, **Install and turn on**. The panel downloads the pinned commit of [KiaroSama/Telethon-Secret-Chat](https://github.com/KiaroSama/Telethon-Secret-Chat) (GPL-3.0-or-later) from GitHub through the workspace's route for requests outside Telegram, checks every file against the SHA-256 fixed in the TgWitness release, loads it without a restart and checks it again at every start. The page names the module, its author and license. An environment that already has the `secret-chats` extra keeps using it ([Secret Chats](PSEUDO-SECRET.md)).
+- Reports in a language other than English open with a recommendation to file the English original with a certified or sworn translation. Evidence, chat and handover ZIPs then also carry the sealed English original (`report.en.html`, `report.en.pdf`, `chat.en.*`), named under `report.original` in the signed manifest, and `README.txt` ends with terms for translators ([Translating reports for court](TRANSLATION.md)).
+- **Settings** is a list with the account card on top and sections grouped as **Account**, **Recording**, **Panel** and **More tools**; each row shows the value in use, and a section opens in a window over the list instead of replacing the page. A section whose settings are all above the chosen interface level shows them instead of an empty fold. **Pseudo-secret** shows chats as a list beside the conversation, with message bubbles, service notes, state marks and the key fingerprint in the header.
+- Report studio: **Add message numbers** under the chat list takes a chat ID with message numbers, or `t.me/c` links, and adds them to **Selected messages**.
+- Fixed: the report studio's design preview stayed empty after opening the studio by its address or reloading the page; in Pseudo-secret a new record took keyboard focus away from **Load older records**, **End chat**, **Accept here** and **Save file**; the overview button of an unavailable account read **Open chats** and led to the connection page; **Alerts**, **Geo lookup** and the default workspace name on the network topology stayed in English; in reports in other languages the opening paragraph of **Coverage** and, in the PDF, **Standards and methodology** stayed in English, and the Russian custody log named the releasing party **Published**.
+- Fixed: report downloads on the **Downloads** tab took unsaved report studio choices although the page says they use the saved ones; a report with hand-picked messages names the numbers that have no journal record; an unknown panel address opens the panel with a notice instead of a JSON error; a notification no longer blocks clicks in a settings window opened over it; settings search finds **Language**, **Theme**, **Time zone** and **Interface level** and moves focus to the found setting; leaving an unsaved chat selection with the browser's Back button or **Pseudo-secret**, and closing a settings form with unsaved edits, ask first; the Case Board no longer stays on **Loading…** after a failed request; message links ending in a slash are accepted and `t.me/c/0/…` is refused; the Pseudo-secret list said **1 chats**; the report studio keeps **Save report settings** and the unsaved-changes counter on screen instead of inside the collapsed configurations block; record numbers under **Changes** and **Actions** open that record in the six report designs where they led nowhere.
+- Fixed: **Unobserved message IDs** under **Selected data** compared every chat on its own numbers, so private chats, bots and ordinary groups, which share one account-wide numbering, listed numbers saved in other chats as unobserved; these chats are now left out and counted, and a selection without a whole channel or supergroup says that numbers were not compared instead of reporting that none are missing. The case assessment counts coverage notes next to gaps, and **Coverage** lists them with their time, chat and reason.
+- Fixed: counts in reports used one plural form for every number, so Russian, Ukrainian, Polish, Arabic and Hebrew reports read wrongly and English ones said **1 messages**; four counters in the panel stayed in English in every other language; the capture page under **Extras** answered 404 after a reload; on phones the chat tabs **Authors** and **Profile** were hidden; in the system map the Telegram node covered the nodes below it; the account switcher showed no keyboard focus. Russian wording of counters and of the main pages is corrected.
+- Fixed: settings search named many fields by their internal identifier instead of their label; the account button on the overview read **Open chats** while it led to the connection page, and in the demo it opened that page instead of the chats; **Free disk space** on the overview wrapped its value; Pseudo-secret kept times in the previous time zone after the display zone changed; when the panel could not be reached, pages showed the browser's own text such as **Failed to fetch** or a bare **Request failed** and now say that the panel did not answer; the empty chat **Profile** tab repeated **not saved yet**.
+- Reports can cover hand-picked messages: **Select** in a chat marks messages, **Build report** opens the report studio with them, and the report lists the chosen message numbers under **Selected data**. The selection format gained an optional `messages` list of chat and message numbers.
+- The report studio shows which parts are in every report under **Always included**. Settings, the Case Board and Extras use the same icon set as the rest of the panel instead of emoji. **Saved by day** on the overview zooms to the days that hold records and labels its dates and peak.
+- Fixed: the overview's **System** card reported **Needs attention** in every state; its first row is now **Collection** and shows the real collector state; the quick navigation window could extend below the screen; on a phone **Chats** opened a conversation instead of the list; disclosure arrows pointed the wrong way in right-to-left languages; coverage gap markers in a chat only used the latest 500 journal notices instead of the period of the messages shown.
+- Report studio: the chat and author lists show names and can be searched by them, and Enter in a field no longer saves the settings. Coverage gap markers in chats keep single notices as points and show an unexpected interruption that has not ended yet.
+- Chat header counts for saved, deleted, not found and edited messages filter the chat when pressed, and the **Deleted** and **Not found at recheck** marks open a note with the observed time.
+- **Build report** in a chat's actions and under an author's details opens the report studio with that chat, or that chat and author, already selected.
+- Chats show gap markers between messages: message numbers the journal has no record for (channels and supergroups) and coverage gaps between a recorded interruption and resumption. The chat messages response gains a `gaps` list for the returned page.
+- **Telegram account** in Settings opens the profile and privacy editor. Overview adds record counters, record composition and activity by chat. Notifications show an icon, a close button and stay above open dialogs.
+- The saved Telegram update position no longer runs ahead of the journal. Telegram's client library advanced it as soon as a batch of updates arrived, so a reconnect or stop while a handler was still waiting, for example during a FloodWait, skipped the rest of that batch; edits and deletions in it were lost. The position now covers only updates whose handling has finished, and the rest are requested again.
+- Other sessions signed in when observation starts are recorded as `session.concurrent_at_start` instead of a coverage gap. Telegram delivers updates to each signed-in session separately, so these sessions do not take updates from TgWitness; a shared session key is still detected as `updates_diverted`. The verifier reads both forms.
+- **Make this the only session when Telegram allows it** kept the two-step password it set only in memory until the operator opened **Sessions of this account**, so a restart in between left the account with a password nobody knew. The password is now saved in the workspace vault before Telegram sets it and removed once it has been shown.
+- **Overview** replaces the start page: every account with its state, what it is doing now with progress, what is unavailable and what still works, a chart of saved messages, edits and deletions by day, running tasks and the system state. A busy account explains its current task instead of "This account is busy".
+- Sign-in shows phone, QR code, account files and authorization key side by side in first setup too. First setup asks first whether the account is a separate one (recommended) or the main one, and names the restriction and ban risk of a main account.
+- Every page stays in the menu at every interface level, including the System map.
+- **Load messages** and **Load full history** offer to pause a running observation; loaded messages restart it right away, and history can start observation when it finishes (**Start observation when the history is loaded**). Profile photos load while the account observes or exports.
+- Account export: **Export everything** on the Overview starts it with every chat, file and account category in all formats. The default **Automatic** method uses Takeout and continues with the regular session when Telegram asks to wait for Takeout approval; the signed inventory records the method used.
+- Account archives add `message-gaps.json` and `map.html`: absent message numbers per channel and supergroup, and, for the account-wide sequence of private chats and groups, each absent run attributed to a chat by a reply or pin or estimated from the chats active at that time. The map shows a calendar, chats over time and weekday-by-hour grids for messages and absent numbers; chat pages mark where messages are absent. `verify.py` recomputes the file.
+- Settings: each section opens at its own address and closes with **Back to settings**, the close button, Escape or the browser's Back button. **Which chats?** is edited in place instead of reopening first setup. First setup opened after setup is complete has a close button. Analysis → Insights loads the selected chat at once and explains an empty journal instead of showing zeros.
+- Settings open with the recommended values in use and four everyday sections; goal, files, record protection, notifications and the expert tools move under **Advanced settings**. Every change can be undone at once or later from **Recent changes**, custom file limits included. Switches, choice buttons and a short explanation under each setting replace bare checkboxes and question marks; the interface level moves to **Language, time and appearance**.
+- `verify.py --tsa-ca` and `python -m tgwitness.anchor verify` check the RFC 3161 signature, the signing certificate and its chain in Python with the `cryptography` library. OpenSSL is no longer needed, also on Windows; `--openssl` is removed from `tgwitness.anchor verify`.
+- Proxy lists: an unreadable or invalid `proxy-sources.json` no longer falls back to the defaults, which turn on every bundled list and country lookups for proxy addresses. Proxy lists stay unused and the panel asks to restore the file; saving the list settings again replaces it.
+- **Record the other side’s typing in the journal**: `visibility.peer_typing` and `secret_chat.peer_typing` records list the reported actions in order with the times they were received (`timeline`), with the forum topic (`top_msg_id`), the upload progress at the first and last notice of a step and the plain fields of the action, such as the emoji of an emoji interaction. A burst keeps its first 100 steps and counts the notices after them.
+- History snapshots record `returned`, `captured`, `already_recorded` and `skipped_own` separately. `telegram_returned_none` includes the observed restriction flags when Telegram returns no messages. `all_already_recorded` is used only when every returned message already has saved content; policy exclusions are not described as preservation.
+- When **Hide online after actions** is on, the first sign-in of a newly created session sends an offline status request in place of the online request. This records the requested behavior; Telegram controls the status delivered to other clients.
+
+## 0.9.3 preview · 11 November 2026
+
+- Chat exports add `journal-changes.jsonl` when the observing workspace saw messages of the chat deleted, missing on recheck or edited: those journal records, every saved version and the notice, each with its journal hash and Ed25519 signature. `verify.py` checks every record against the export key, and the HTML and PDF reports list them under **Deletions and earlier versions**. See [evidence](EVIDENCE.md).
+- Add the signed [account loss report](ACCOUNTS.md#when-telegram-ends-the-session). When Telegram bans, freezes or signs out the account, or the session is ended from another device, the journal records the cause, the Telegram error, the route and the data centre, and the account's health offers a JSON file with the journal records of the 24 hours before the loss. `verify.py` checks the report's signature and every record in it.
+- Export progress: multi-account exports read attachments in batches of 100 messages and show the stage and the estimated time left; a single chat export shows the recheck and packaging stages. Attachments in a multi-account export follow the lead account's capture policy.
+- Collector: attachment downloads stop while the account must sign in again and are retried afterwards; the absent-number recheck includes the 1,000 numbers below the first message and spreads up to 10,000 numbers evenly over all gaps; an authorization error of another client is recorded as `account.authorization_error`; a frozen account is detected through `help.getAppConfig`.
+- The verifier's archive and JSON parsing are fuzzed in CI with ClusterFuzzLite, and `verify.py` rejects a malformed manifest with a clear message. The installer signing job runs in a dedicated `installer-signing` environment.
+- Add the [expert examination protocol](NARRATIVE.md#expert-examination-protocol): `python -m tgwitness.narrative evidence.zip --jurisdiction PL --expert --procedure criminal` writes a draft of the expert's report as HTML, PDF and JSON from the examiner's own verification run. It holds blank fields for the case and the expert, the legal basis, the liability warning and any required declaration, the repeatable checks, findings in three groups and the questions the package can and cannot answer. The [examination catalog](../tgwitness/narrative/examination/README.md) covers 53 jurisdictions; each entry names its official sources and lists the points it could not confirm. The protocol and the narrative recommend filing the English original with a certified or sworn translation into the court language. Narrative reports are available in 39 languages.
+- The narrative and the expert protocol use the dossier layout: a header with the jurisdiction, the procedure, the court languages and the package SHA-256, status labels with text, times as `YYYY-MM-DD HH:MM:SS.mmm UTC` and record references shortened to ranges. The terms section and the declaration follow `--procedure`; a declaration that applies to civil proceedings is left out of a criminal protocol.
+- Reports: the activity chart axis shows whole numbers, words in the conditions table are no longer split inside a word, and removed and inserted words in an edit comparison are separated.
+- The operator notice links the [106-day GDPR file](TAYLOR-WESSING-GDPR-FILE.md), which is available in every documentation language. [Questions and checks](QUESTIONS-AND-CHECKS.md#built-in-api-pairs-identify-a-client-not-an-account) answers the built-in API pair, public MTProxy and deleted-message objections with the facts first.
+- Add `verify.py --bitcoin-source URL`: OpenTimestamps proofs are checked against block headers from your own node's Esplora API instead of the two public explorers.
+- Verifier, panel and documentation state what each check establishes: the line for an archive without checked external time names the options that add it, and the witness condition refers to the custodian's key-control record.
+- The website's reference pages, guides and homepage are translated in all 24 site languages; about 450 text blocks per language were still shown in English after the 0.9.2 documentation update. Translated with DeepL; markup, links and code are checked unchanged.
+- Interface translations: short panel labels were translated again with DeepL using interface context, and the Russian labels were reviewed one by one. Fixes include "Observe" and "Observing" read as "comply" or "note" in several languages, "Off-site copy" read as "off-site text", "Follow new lines" read as "insert new lines", and Russian button labels in the imperative.
+
+## 0.9.2 preview · 10 November 2026
+
+- Watch the account's sessions while observing. A new entry in Telegram's session list is recorded under `added` in `account.sessions` and raises an alert with the device, application and country. Security notices from Telegram (777000) are recorded as `account.security_event`, the session key fingerprint as `session.fingerprint`, and other sessions signed in when observation starts or a session ended from elsewhere as coverage gaps. Phone call updates are recorded as `account.phone_call`.
+- **Account security → Sessions of this account** ends one session or all other sessions. For a session key created in this workspace, **Make this the only session** ends every other session and sets a two-step password if the account has none; **Make this the only session when Telegram allows it** runs the same action once Telegram's 24-hour limit has passed. The journal records `session.exclusive_from`, and `session.exclusive_ended` if another session appears later.
+- Add the [witness probe](ACCOUNTS.md#witness-probe): a second workspace with its own account answers probes in a private group. An answer that reaches this session only through history, not as a live update, marks event intake as failed until a later answer arrives live. The verifier counts probes sent, answered live and missed live, and on the witness side the probes it saw and answered.
+- The journal records where the session key came from: `key_origin: "created"` for a phone, QR or independent sign-in, `imported` for a session file. Attested deployments refuse imported keys. With the goal **Evidence for a case**, starting observation first names any other signed-in sessions.
+- Import an auth key and DC as one line, `<512 hex characters>:<DC 1–5>`: pasted, as a text file or in the `session` field of an Account JSON.
+
+- A single-chat export that fails or is cancelled keeps what it has read under a statement signed with the collector key, with a signed checkpoint every 5,000 messages and another before the files stage. The export form offers **Resume export**, **Start over** and **Download partial export**. Partial exports set aside more than seven days ago are removed at startup.
+- Reuse attachments already saved for the same Telegram file instead of downloading them again; reused bytes are hashed before use. Each account runs up to three file reads in parallel.
+
+- `verify.py` checks Intel TDX quotes offline: the quote and quoting-enclave signatures, the PCK chain up to the pinned Intel root, the REPORTDATA binding and, when the archive carries Intel's collateral, the TCB status at the recorded time. Without the provider checks of `python -m tgwitness.cloud verify` the attested run stays partial.
+- Evidence mode stores OCSP or CRL revocation data for each RFC 3161 signing certificate, and `verify.py` checks it against the time stamp.
+- Signed checkpoints carry the latest drand round, fetched through the workspace's outside route so Hide IP, proxies and a turned-off outside route apply. `verify.py --check-drand` confirms it; the round shows the checkpoint was signed no earlier than that time.
+- The verifier output lists session records: sessions added and ended, other sessions at the start, only-session periods and witness probes.
+
+- Count failed sign-ins toward the lockout for every JSON body the panel accepts, not only for an exact `application/json` content type. The disclosure note no longer says that filtering and redaction were checked.
+- Restore 6 November work missing from `main`: the chat export eligibility check with time estimates, the automatic connection route with WARP consent, the route choice for bulk import, and separate `deletion.unscoped` records for unknown messages and messages in chats outside observation.
+- Before publishing the download site, CI checks the signed installer artifact and installs its wheel on Ubuntu and Windows; pull requests that change the installer also run `install.sh` and `install.ps1` twice against a local HTTPS origin. [Verification](VERIFICATION.md) records the 9 and 10 November live runs: parallel clients on one session, session resets, two-step password changes, the witness probe, interrupted chat exports and a Phala TDX deployment; [Timestamps](TIMESTAMP.md) records the live TSA services.
+- The minimum for evidence is now integrity, the confirmed signer key and external time from a third party covering the last exported record: a validated RFC 3161 timestamp, a confirmed OpenTimestamps proof, a witness post read live from t.me, a witness Bitcoin seal or a checked GitHub attestation. A retained checkpoint and a witness with its own key are supporting checks, because the collector could create both alone. `verify.py --channel https://t.me/s/…` reads post dates from Telegram and skips the dates of edited posts; dates from a supplied `result.json` or any other source remain supplied metadata.
+
+- Refresh the pinned Wolfi base images and runtime/MCP dependencies, regenerate root and capture hash locks, and require patched QR reader wheels. Exclude OpenCV 5.0.0.93, which bundles FFmpeg 8.1.1 affected by [CVE-2026-8461](https://github.com/advisories/GHSA-qff7-4q6c-m8h6).
+
+- Simplify the panel around six daily sections: Home, Chats, Journal, Exports, Accounts and Settings. Move secondary tools, collection diagnostics, chat actions and advanced filters into contextual menus. Open saved chats after sign-in, preserve drafts and filter selections, and give messages more space on phones and desktops. Update the Russian labels and panel guide.
+
+- First setup starts with one question: Just download, Follow chats or Evidence for a case. The answer sets the goal and interface level; five stages with a progress bar replace the seven numbered steps, connection routes open only when the automatic check fails, and the Telegram step hides account diagnostics. Level, theme and time zone stay under More options.
+- The README adds animated panels for the first start and system map, and for case documentation: subject cards, conversation plans and wallet codes with watchlist hits. The capability panel adds investigation mode and the court case package. Each animation has narrow-screen and reduced-motion versions.
+- Verify reused Secret Chat attachments, retain damaged cached bytes during repair, and retry pending downloads through a bounded persistent queue. Preserve exact protocol identifiers in the panel and make older history available through explicit pagination.
+- Serialize analyst report edits and detect stale revisions so concurrent changes cannot silently remove revision history.
+- Require verified owner-only permissions when explicitly exporting an MTProto session key in a forensic bundle.
+
+- Create a new provider-metadata directory with readable traversal permissions even under a restrictive service umask, while preserving permissions on an existing directory.
+- Cancel a pending QR sign-in when its panel session ends or is revoked, including main-token rotation. Recheck access before a queued QR request starts. Other sessions and completed account authorizations stay intact.
+- Preserve Secret Chat message drafts, focus and reading position during refresh. Bind chat and auto-accept confirmations to the account where they were opened, and preserve edits made while a message is being sent.
+
+- Update the development-history and validation overview, distinguish live monitoring from history and recheck observations, and document verification results by acquisition mode.
+- Record Secret Chat integration in the published 0.9.1 installer package: backend, collector hooks, API and panel. The pinned protocol library remains an optional `secret-chats` dependency enabled per account.
+
+- Add an administrator [System map](SYSTEM-MAP.md) with per-account routes, socket
+  endpoints, proxy state, storage and key boundaries, service configuration and a
+  bounded network-observation buffer. Refresh visible snapshots every five seconds;
+  distinguish requests, connection attempts, results and unavailable host telemetry.
+
+- Isolate request-body capacity and token-family lockouts, set Secure download cookies behind trusted HTTPS proxies, limit pending tickets per access, and expose journal write failures.
+- Add an English Secret Chat interface demo with fictional requests, replies, attachments and retained deletion notices. See the current Secret Chat guide for installed integration and recording behavior.
+
+- Remove the unused one-shot exporter and check recovery against the current exporter. Reject unexpected or repeated message IDs in recheck responses.
+
+- Combine concurrent exports with resumable Standard API and Takeout acquisition. Each job retains its own progress, timings and signed checkpoints; accounts remain reserved until that job stops. Include the account controls, batch import and report-verification updates in the same build.
+
+- Add offline `VERIFY.cmd` / `VERIFY.sh` launchers, plain-language verification explanations and saved UTF-8 transcripts to signed exports in all 25 panel languages. Build a separate Windows verifier with an embedded runtime and a language menu. The result reports signer pinning, integrity, coverage and external time checks separately.
+- Add optional jurisdiction guidance for 25 countries to Report Studio and exported assessments, with separate civil/criminal sources, local-language summaries and next steps derived from the actual package. Guidance remains a research draft, does not raise assurance, and is excluded from reusable layout profiles and inherited sharing-copy settings.
+- Allow the pinned Russian morphology dictionary resources in Windows portable builds while continuing to reject unrecognized files in dependency data directories.
+
+- Keep missing-on-recheck observations separate from deletion notices in HTML, JSON and PDF counts and viewer labels. Do not claim unscoped deletion IDs were never saved when their chat is outside the current observation scope.
+
+- Record multiple deleted IDs as a deletion batch without inferring a whole-history clear, the deleting participant, or deletion for everyone. Relabel legacy history-clear events without changing their signed records.
+
+- Publish the one-command installer only after application and security checks pass for the exact main commit and the signed package passes Ubuntu local/HTTPS service and Windows PowerShell acceptance. Keep the previous download when checks fail or time out. Add authenticated tests of the actual public installer URLs.
+
+- Preserve `previous_hash` in the signed-record preview even when its hexadecimal digits resemble a payment card number. Secret masking still applies to message content; the stored record is unchanged.
+
+- Reconstruct compact chat snapshots consistently in MCP, retain unknown fields, and distinguish capped lists from removals. Resume date scans, preserve topic names across history reads, and bound image previews. Apply metric choices to filtered reports and count historical service messages separately.
+
+- Plan sealed exports against the remaining session time, offer smaller selections, update progress estimates and reserve time for packaging.
+- Compare every message field, validate record counts and structure, enforce CLI verification options, and display OpenTimestamps states separately.
+- Close coverage on worker failure, bind heartbeats to the capture run, and verify TDX signing-key binding and supported component statuses.
+
+- Add read-only MCP tools (preview): `get_messages_by_date` (one calendar day in a named time zone, computed server-side), `get_pinned_messages`, `get_chat_stats` with `gap_summary`, `get_topics`, and `get_media`, which returns a verified, downscaled image preview anchored to its SHA-256 and `media.saved` record. Every MCP tool now declares an output schema. New connections include these tools; existing connections keep the tools they were issued with.
+- Show each account's selected route and checked exit address, group session controls, and retain interface preferences when adding an account. Record connection changes without repeating identical background checks. Validate withheld-marker contents and reply states in minimized exports, including rejection of a missing-source label for an included record.
+
+- Update collection-mode instructions and Russian guidance. Allow a bounded publication-settling interval while requiring exact installer bytes.
+
+- Mark messages left out of a minimized disclosure (preview): inside each disclosed chat, withheld messages appear as content-free markers naming the selection rule, one per run or one per message, and disclosed replies state whether they answer a disclosed message, a withheld one or one that is not in the source export. The package format becomes `tgwitness-account-disclosure-v2`; `verify.py` rejects markers with content and replies pointing at missing records, and still verifies version 1 packages.
+- Repeat gap analysis with the settings carried by the signed export, count each service-message number once, and bound account estimates to the measured interval. Require explicit whole-account scope, retain pause/resume boundaries, and interrupt expensive archive scans at their time budget.
+
+- Add missing message numbers (preview): `coverage.json`, the HTML and PDF reports, `verify.py` and the archive's `get_capture_status` measure numbers Telegram assigned and this collector never saw, per channel or supergroup and for the account-wide sequence of private chats, bots and ordinary groups during whole-account collection. Each result states whether it applies and why, lists its parameters, and anchors listed gaps to the neighbouring observations. **Parameters → Gap analysis** sets the listed gaps, the account-wide sequence and an optional service-message estimate that is never subtracted. A gap names no actor and no reason.
+- Record in the signed message when self-destructing media is fetched despite a type or duration rule (`media_capture.rule_override`), with the limits that still applied.
+- Add chat-state snapshots (preview): while observing, every enabled source is read periodically and saved as a signed `chat.state` record with title, description, counts, pinned messages, administrators with rights, and gifts on channels and profiles, plus the differences from the previous snapshot. Unpinning, rights changes and gift conversions or upgrades without a service message become visible. Parts Telegram refuses are named and carried forward, never reported as removed. **Parameters → Chat state** sets the interval, pause and parts.
+- Add anomaly indicators to evidence reports (preview) as registered, versioned processors in `tgwitness/metrics/`: first-time posters per day with flagged injection-like days, service messages among message numbers, joins and departures per month, and pins and unpins per month. Reports list every processor that ran with its version and print its method; **Parameters → Report metrics** chooses them.
+- Keep ranked-search pages within the first 1,000 results regardless of page size, order OCR/transcription results before pagination, and retain exact match positions when Unicode expansions and invisible-character removal cancel each other's length changes.
+
+- Keep photo downloads on the still variant named by their metadata and hash manifests, including after file-reference renewal. Reject truncated photo/chat attachments and corrupt reused files instead of counting them as saved. Check recovered multi-account message IDs against missing intervals without expanding large gaps.
+
+- Release a session's local connection lock after transport shutdown, including when a disconnected client was already removed from the workspace. Cancelling the waiting operation cannot release the lock early, and closing an older session cannot unlock a different current key.
+
+- Apply a chat export's skip/hash-only choice to recovered messages and profile photos, and record that choice in the acquisition metadata. Reject changed messages before fetching attachments in the separate files stage. Count missing message numbers as intervals so sparse histories do not exhaust memory, including during a cancellable full recheck.
+
+- Preserve available self-destructing photos, videos and files in the API journal with a dedicated immediate queue, explicit TTL/view-once labels and signed saved/unavailable/not-saved outcomes. Block read receipts in the API client, including batches and wrapped requests. Keep byte limits, disk reserves and Telegram backoff; saved bytes record retrieval by the collector.
+- Preserve image-rendered Unicode emoji in official Web message text, reply previews, reactions and derived page text without changing the client DOM. A live account test exposed the omission; video and saved pages already retained the image.
+- Improve chat-export Takeout, unreadable-message recovery, shared absent-number rechecks and bounded range retries. Preserve observed deletions in export scope, compare verified archives, and distinguish archive integrity from an independently confirmed signer.
+- Protect imported sessions from remote logout, close idle connections and prevent simultaneous reuse of a session key. Add explicit session management and masked two-step password entry; cancellation or switching workspaces prevents submission. Read single-account export messages before their separate attachment stage.
+- Keep source export and AI actions disabled while local source search is pending, empty or has failed; clear stale previews before the next search. Exercise delayed replies explicitly in browser checks.
+- Use unambiguous synthetic privacy identifiers and report the exact marker/context on handover-test failures, avoiding accidental matches inside report metadata.
+- Add an in-panel comparison of collection methods and explain account task ownership beside full-history controls. Refresh source-version badges, qualification records and Trusted Live network results; check version labels before publication.
+
+- Add [full-text search](SEARCH.md) (preview): Russian and Ukrainian word forms, English stems, Chinese and Japanese phrases without spaces, exact phrases, domains in hidden links and buttons, @usernames, wallets and phones, filters for chat, sender, message ID and observation period, ranked with BM25. The index is derived from the signed journal, bound to its latest record hash, never exported, and can be kept on disk, in memory only or turned off. Recognized text is indexed in memory only and labelled as machine recognition.
+- Ask the archive retrieves the best matches from the full-text index when it is complete, keeps the 24-source limit, and cuts long texts around their match. MCP `search_messages` accepts `ranked=true`.
+- Add `tgwitness index status|rebuild` with JSON output on stdout and stable exit codes.
+- Fix ranked search paging: `next_offset` is now returned when more matches exist, through `/api/search`, MCP `search_messages` and Ask the archive's partial marker. Paging stops at the first 1,000 results.
+- Fix Ask the archive failing on questions longer than 24 words or 200 characters. The full-text query keeps the question's first distinct words; a query the index cannot read falls back to exact-text retrieval.
+- Centre excerpts on the match in long texts that hide zero-width characters between letters.
+- Build the website when a language lacks new translations: untranslated blocks stay in English with the page notice and are listed by the build.
+- Add the [command line](CLI.md) (preview): `tgwitness search`, `context`, `messages`, `stats` and `export` with `--json` and stable exit codes, reading a stopped workspace directly or a running panel through a scoped, revocable archive connection. Add `.agents/skills/tgwitness-cli/SKILL.md` for agents.
+- Add the `get_activity_stats` archive tool, also offered over MCP: messages by UTC hour and weekday, peak days, edit and deletion shares, senders, domains and @handles, with coverage gaps. Computed on request, not stored.
+- Add the `export_messages` archive tool for the command line: saved observations streamed as JSON Lines in journal order, with full text and a completion record. It is granted only when selected; existing connections keep the tools they were issued with.
+- Recheck archive access before every streamed record, including completion. Revoked or expired connections end without a completion record; lazy export reads share the archive worker limit and timeout.
+- `tgwitness index` and the new commands find the data directory of the installation that runs them.
+
+## 0.9.1 preview · 5 November 2026
+
+- Keep message and attachment outcomes visible after single-chat sealed capture, including missing data, failed files and unfinished downloads. Translate final status when changing language after shutdown, and clear connection or export errors once they recover while retaining rejected-action and unconfirmed-revocation warnings.
+- Update the pinned OAuthLib dependency to 4.0.1 for CVE-2026-49272 and regenerate the runtime, browser and MCP hash locks.
+- Show in-flight attachment bytes without counting them as preserved evidence, reset progress on retries and clear it on pause. Keep official-client chat controls disabled during QR/2FA login and until a chat is available. Explain that Takeout approval requires another previously signed-in device. Bound CI dependency installation and avoid the stalled Azure package mirror.
+- Add explicitly selected direct networking for official Web capture through GitHub Actions. Proxy remains the default and never falls back to direct. The panel and signed verification report disclose direct IP exposure, and verification rejects a mismatch between the selected route and the hosted network.
+- Add an optional official Telegram Web observation mode with passive or sequential paced viewing, a fresh profile, restricted UI actions, login-excluded video and signed rendered observations. A required proxy bridge prevents direct fallback; exit changes stop recording. The GitHub Actions mode uses the approved sealed workflow and recipient encryption.
+- Bind official recordings to independently saved source/settings, check video segment order and clean endings, record fresh drand rounds and support independent public-relay comparison. Report unfinished procedures, unconfirmed logout and the limits of local or Cloudflare assurance explicitly. See [Official client witness](OFFICIAL-WITNESS.md) for scope and validation.
+- Add opt-in Trusted Live preview: isolated official Desktop/Web sessions, native JSON preservation, guarded visual recording, per-chat continuity annotations, and verifier-recomputed reports. Supply a Linux network guard with no direct fallback, periodic proxy-routed drand observations, and optional independent read-only Cloudflare samples. Account/WARP/TDX qualification remains pending; see `docs/TRUSTED-LIVE.md`.
+
+- Make sealed export modes explicit: Telegram Takeout by default, regular API account export, or a single-chat event journal, with differences and limits shown before collection. Select multiple chats, save agreed settings, verify them with `--expected-selection`, and reject incomplete account exports with `--require-complete`. Correct the outdated one-chat-only hosted documentation.
+- Preserve signed message pages before requesting files or hashes. Resume from frozen history, retain completed attachments, and finish an interrupted export with explicit gaps when time or disk is limited.
+- Add Telegram Desktop compatible JSON/HTML views alongside authoritative signed data. GitHub capture supports full-account and selected-chat exports through regular API or Takeout, with chat types, dates and media settings.
+- Deliver large GitHub archives in encrypted parts with a signed, attested manifest and verified local assembly. Remove the fixed 4 GiB delivery failure without omitting preserved evidence.
+- Retry transient pinned OCR source downloads without relaxing checksum checks. Retry brief Windows file-sharing failures when saving private state.
+- Configure account exports before collection: select chats and media types, exclude avatars by default, and choose downloads, Telegram range hashes or metadata only. Keep a shared attachment budget and record incomplete files explicitly.
+- Show Takeout approval requirements and retry deadlines before collecting; check approval again without replacing the waiting session. Phone, QR and existing-session login retain their own authorization flow.
+- Save Telegram-provided SHA-256 ranges with file representation and data-center metadata. Compare them against locally supplied files; Telegram identifiers and access hashes are not treated as content hashes.
+- Collect message history across selected chats before processing attachments when messages-first mode is enabled. Preserve the journal in a compact export when full HTML or attachment packaging exceeds the remaining capacity.
+- Stream sealed delivery encryption without a second full plaintext archive. Remove interrupted ciphertext, preserve the original evidence for retry, and keep capture deadlines across runner steps with time reserved for delivery.
+- Require sealed-container validation in the release workflow. Phala deployment status now distinguishes verified, incomplete and review-required attestation instead of inferring trust from the provider name.
+- Validate every sealed-container build input against its pinned source. Retry transient package downloads up to three times while retaining signature, SHA-256 and exact-package checks before offline installation.
+- Include the hash-export configuration examples in source archives and preserve the translated documentation and required site assets from the latest main revision.
+- Keep the current tunnel address when an older signed address post is replayed.
+  Signed posts are ordered by their signed time; unsigned posts use the relay's receive time.
+- Trust only the Caddy proxy on the private Docker HTTPS network and normalize client addresses for authentication limits.
+- Keep operator IP addresses out of new signed access events, hide administrative payloads from shared views, and enforce workspace and export ownership boundaries.
+- Reject duplicate JSON keys, prepended ZIP content and HTML injected into report seals; distinguish pinned witness keys from pinned collector keys.
+
+## 0.9.0 preview · 4 November 2026
+
+- Reserve each account exclusively for monitoring, history or an export. Serialize Telegram RPCs and persist full FloodWait deadlines.
+- Add durable distributed chat exports with date/language/reply filters, bounded labelled context, signed chunks and explicit pause/resume. See [Distributed chat export](DISTRIBUTED-EXPORT.md).
+- Keep account reservations until every export worker has stopped, including repeated pause requests and sibling worker failures. History loading in sealed sessions also reserves the account exclusively.
+- Add participant timelines from saved observations: names, membership, explicit deletion flags and message activity. Profile refreshes are bounded; optional presence recording preserves unavailable or expired status as unknown and does not attribute online activity to a chat.
+- Save, import and reuse report layout profiles without copying case details or report filters. Profiles are validated and isolated by workspace.
+- Automatically offload eligible attachments to configured external storage under disk pressure, with reserve-space checks, compression, optional encryption and full readback verification before local eviction. Journals remain local.
+- Make the recording settings and chat tabs fit narrow screens, including wider system fonts, and fix profile controls and localized labels.
+- Include reviewed website assets in source archives and verify conditional dependency versions in SBOM inventories.
+
+- Phala Cloud deployments work on Phala Cloud itself (first real run, 4 November 2026): the
+  compose carries its name, Phala's own pre-launch script is kept out of the measured
+  app-compose, the production OS image is chosen instead of Phala's development default, the
+  instance ID is read from the CVM state, and restarts from the CVM's operations count in
+  `provider_actions`. Private Phala regressions simulate each of these.
+- `tdx_os` without outside tools: the verifier downloads the published dstack OS image once,
+  matches it to the hash the CVM reports and computes MRTD and RTMR0-2 itself, the ACPI tables
+  QEMU builds for the VM's shape included. A development image, other firmware, kernel, command
+  line, memory, vCPUs or devices fail. Each journal start is checked the same way.
+- Attestation certificate for Phala deployments: `verify --report` also writes HTML and a signed
+  PDF, sealed by a qualified eIDAS time stamp from the Belgian government's time-stamping
+  authority, a FreeTSA time stamp and the verifier's own key; `check-report` checks the seal.
+- Quick tunnel addresses are also posted signed with the collector key, so a verifier is not
+  misled by forged posts on the address topic; on Phala Cloud the tunnel check passes, since its
+  connector runs inside the measured compose.
+
+## 0.8.1 preview · 2 November 2026
+
+- Runtime, sealed and media containers moved to pinned Wolfi/glibc with Python 3.12 and
+  hash-locked system packages (AMD64 + ARM64). Image scans are clean of HIGH/CRITICAL.
+- Tesseract 5.5.4 built from verified source, English and Russian data pinned.
+- Release checks now cover real OCR, offline transcription, signed multilingual PDFs and
+  container restrictions. The source archive includes all container build inputs.
+- **Extras → Independent capture** in the English panel: browser/AyuGram recorders with
+  encrypted tokens, pinned keys, tab selection, start/pause, snapshots, checkpoints and
+  verified ZIP downloads. Everything is off by default.
+- New optional `tgwitness-capture` package: Chromium PNG/MHTML snapshots, AyuGram SQLite
+  copies, optional silent video, Ed25519 event chains, signed ZIP/HTML reports and a
+  standalone verifier. Each recorder has its own key and storage.
+- Fixed Phala installs: source bundles were missing the capture package.
+
+## 0.8.0 preview · 2 November 2026
+
+**Reports**
+
+- Report studio: eight designs (Classic, Editorial, Briefing, Analytics, Technical,
+  Overview, Reading series, Ledger & margin), live preview, HTML and native signed PDF.
+  Switching designs keeps filters, charts and notes.
+- Pick report data by chat, author, date and event type and preview it before saving.
+  Edits show before/after, deletions show what was saved earlier.
+- Reports look like proper dossiers now: cover, key figures, evidence map, numbered
+  findings, timeline. PDFs get an A4 cover with QR, bookmarks and page refs.
+- Each report explains what its conclusions rest on: export-time checks, observations,
+  missing material, how to check it independently (EN/RU/DE wording).
+- Send, edit and observed times are shown separately, plus replies, threads and metadata.
+
+**Case Board and groups**
+
+- Private Case Board: signed bookmarks, exact-version highlights, action slices,
+  collections, threaded comments and statuses. Team notes stay apart from observations;
+  the verifier checks board exports too. Export permission alone doesn't reveal team notes.
+- Account groups share settings. Members follow the group, an account's own value wins
+  until reset. Changes show which accounts they hit and ask before overwriting. Access can
+  be granted to a whole group.
+- Group screen at `/groups/<id>`: accounts, problems, shared chats, group export.
+
+**Setup and connection**
+
+- Six-step first setup and one Settings page with simple/standard/expert levels, in all
+  25 languages. Each step has its own URL, Back works.
+- The setup asks whether the account is a separate one; a main account only records
+  chosen chats. After Start it shows that connection, events, sources and files work.
+- Guided Connection screen: pick accounts, prepare and check a route, then apply. Direct,
+  own proxies, public MTProto pool, WireGuard profiles and portable WARP.
+- Automatic connection tries public MTProxy, then WARP, then direct (if allowed) and shows
+  a status indicator instead of failing silently.
+- Video duration limits in file policies.
+
+**Panel and safety**
+
+- No more one-click accidents: pausing, excluding and removing sources are confirmed,
+  sending from a chat needs "Write as @account" first, route changes while observing
+  offer to pause.
+- One set of counters everywhere (deleted with text, deleted before saving, missing on recheck).
+- Account files are inspected before connecting. URL, workspace and account always agree,
+  a mismatch blocks actions. Chats open read-only and mask detected secrets.
+- Downloads fall back to normal browser downloads, big archives stream through one-time
+  cookies. Prepared exports keep size, SHA-256 and "Download again".
+- Panel token rotation keeps the new session alive. Temporary network failures offer Retry.
+- Panel dialogs instead of `window.confirm`, journal paging fixed, lots of small UI fixes.
+- Public-channel showcase: expiring read-only links with redacted authors and signed snapshots.
+
+**Servers and evidence**
+
+- Extras → Server 24/7: a Hetzner server from the panel with a quick tunnel or your own
+  domain. `python -m tgwitness.cloud destroy` cleans everything up.
+- Phala Cloud option: the collector runs in an Intel TDX confidential VM, `verify` checks
+  the attestation up to Intel's root.
+- Gateway DNS (`--gateway-dns`): the server only resolves through Cloudflare Gateway.
+- Optional drand rounds and Telegram device lists in evidence mode.
+- Setup by goal: four questions, suggested settings, credibility and reliability scales.
+
+**Other**
+
+- Notification service catalog with icons, optional operator control bot, Discord witness posts.
+- Storage separates backups, verified file offloading and evidence retention.
+- AI previews show the endpoint and outside route.
+- Pull requests run both panel suites, including Firefox and WebKit downloads. Release
+  packages wait for dependency, CodeQL and container audits.
+- Docs: a [panel guide](PANEL.md) for every screen.
+
+## 0.7.1 preview · 1 November 2026
+
+- **Start here** with two paths: export my account, or follow an investigation.
+- Account export through Telegram Takeout or the regular API, resumable, with signed progress
+  and coverage records ([account export](ACCOUNT-EXPORT.md)).
+- Separate signed sharing copies with filters, pseudonyms and optional text/file removal.
+  Signatures bind the selected output; source references and transformation records
+  support comparison with the retained original.
+- Readable offline reports for account exports and sharing copies, printable, with record
+  links and instructions for the recipient.
+- Clear handoff after download: original vs sharing copy, report preview, instructions to copy.
+- Rejected Telegram logins are told apart from paused accounts and network errors.
+  **Sign in again** keeps the workspace.
+- Load the history of enabled sources with pause/resume, plus a signed progress report
+  ([history](HISTORY.md)).
+- Read-only MCP at `/mcp`, local archive search with optional AI, local OCR/transcription,
+  signed webhooks with retries.
+- GitHub Actions capture preview: one chat on a temporary runner, encrypted result,
+  pinned provenance ([sealed capture](SEALED-ACTIONS.md)).
+- Self-contained signed reports in 25 languages with chain of custody; archives add
+  `custody.json` and `SHA256SUMS`.
+- Panel rework: workspace URLs, Back/Forward, drafts survive updates, Ctrl/Cmd+S, Sources
+  split into tabs, Parameters search, journal filters and inspector, live updates.
+- Batch session import, account groups, MTProxy dashboard with ping, countries and own lists.
+- MTProxy decryption through OpenSSL (it used to eat a whole CPU core).
+- Stronger masking in sharing copies, bounded media decoding, repeatable source ZIPs.
+- Notification services refuse redirects. Weekly Dependabot, nightly CodeQL and container scans.
+- Lots of fixes: stuck chat profiles, quick search, DST in search dates, 502s behind
+  Caddy, GIF/sticker downloads, slow proxy list parsing, duplicate sessions on import.
+
+## 0.7.0 preview · 31 October 2026
+
+- OpenTimestamps proofs are parsed strictly; Bitcoin attestations show as
+  `bitcoin-unverified` until you run `ots verify`.
+- Verification reports which part of the journal witness checkpoints cover;
+  `--require-witness` demands a pinned witness and matching final record.
+- Access and permissions guides, updated proxy and IP mode guides.
+- Panel and docs site in 25 languages. Site publishing fails on missing translations.
+- Added the [roadmap](ROADMAP.md).
+
+### Initial preview contents · 30 October 2026
+
+- First GitHub release: Windows portable, wheel, source archive.
+- The setup guide has an "Open to everyone" section: no country or sanctions blocks, and
+  Taylor Wessing as the only incompatibility we name. It is our position, not a licence condition.
+- The README and Wiki now present the authors' Ethical Notice & Historical
+  Continuity statement, with document references, historical context and an
+  explicit explanation that MIT permission applies to everyone.
+- The operator notice and the Taylor Wessing page speak in our own voice.
+- Returned to the MIT License. A tool whose output third parties must be able to check
+  should not stumble over its licence. `LICENSE` is the standard MIT text again, the
+  package declares MIT with the OSI classifier, and the container, portable package,
+  website, Wiki and translated README labels say so. Our statement stays in NOTICE
+  and on the Taylor Wessing page as our position; it adds no licence condition. The presentation artwork reads "open source" again.
+- Added our Operator Incompatibility NOTICE to README, SECURITY,
+  the documentation, Wiki and website. A single source keeps the complete statement
+  consistent across those pages; source, Python and portable distributions include
+  NOTICE alongside the licence.
+- High-assurance deployment (`python -m tgwitness.cloud`, [guide](HIGH-ASSURANCE.md)) on
+  Hetzner, DigitalOcean, Linode, Vultr or EC2: no SSH key, no inbound ports, panel only
+  through a Cloudflare Tunnel, and a `verify` command for third parties.
+- Local launchers open the panel in the browser once it's up.
+- Read-only online demo of the real panel with fictional data.
+- Wiki with 13 guides, docs website with a reference section, search, diagrams and 13 languages.
+- **Sign out of Telegram** on the Account page.
+- About 940 Russian panel strings fixed by hand.
+- Observation scope: chosen chats, a folder or the whole account, by type. New chats are
+  picked up immediately.
+- Investigation mode for accounts that join groups and talk to bots.
+- People profiles (opt-in per chat), independent witness bot, notification excerpts,
+  Parameters page, light/dark theme.
+- Panel mini-client: send messages, press bot buttons, preview and join invites.
+- Fixed message loss after a long stop (rechecks used to stop after 1,000 messages).
+- Many fixes from a full review: attachment byte counts, restore checks, scope edge cases,
+  verify.py witness handling, off-site copy retries.
+- Pillow 13 (39 advisories against 12.3).
+
+## 0.6.1 · 27 October 2026
+
+- Renamed TgWatch to TgWitness, old archives still verify.
+- Evidence mode timestamps checkpoints with RFC 3161 and OpenTimestamps.
+- Password-protected AES-256 ZIP exports.
+- Notifications through Apprise.
+- 13 interface languages; README, Quick start and Deployment in 12 languages.
+- Encrypted off-site copy to S3-compatible storage with Object Lock.
+- Catch-up after restart and rechecks every 15 minutes.
+- Built-in pool of public API pairs, no own API ID needed.
+- New Chats view, Accounts view, multi-account chat export, signed full chat export.
+- Windows portable package, public website, GitHub Pages workflow.
+- Better launchers on all platforms, redesigned panel, new logo.
+
+## 0.6.0 · 27 October 2026
+
+- New account form with Phone, QR code, Files and Auth key tabs.
+- Auth Key + DC ID sign-in, Telethon/Pyrogram sessions, TData ZIPs, StringSession, account JSON.
+- QR login with 2FA, Desktop local passcodes.
+- Demo opens on its sample journal; refreshed panel look.
+
+## 0.5.1 · 27 October 2026
+
+- Only the active account client is accepted; rejected logins are disconnected.
+- Windowless Windows launches with logs in `logs/server.log`.
+- Case-insensitive Unicode search, full UTC dates on phones.
+- Linux/macOS launch scripts, Docker helpers, optional HTTPS with Caddy, GHCR images.
+- Docs on export signatures and investigation handoff.
+
+## 0.5.0 · 26 October 2026
+
+- Per-account monitoring categories, presets and signed policy changes.
+- Direct local entry to synthetic demos.
+
+Older history: [release status](internal/RELEASE.md) and [verification](VERIFICATION.md).

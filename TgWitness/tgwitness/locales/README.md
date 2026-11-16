@@ -1,0 +1,42 @@
+[TgWitness](../../README.md) / [tgwitness](../README.md)
+
+<picture>
+  <source media="(max-width: 640px) and (prefers-reduced-motion: reduce)" srcset="../../docs/assets/presentation/section-languages-mobile-static.svg">
+  <source media="(prefers-reduced-motion: reduce)" srcset="../../docs/assets/presentation/section-languages-static.svg">
+  <source media="(max-width: 640px)" srcset="../../docs/assets/presentation/section-languages-mobile.svg">
+  <img src="../../docs/assets/presentation/section-languages.svg" width="1200" alt="TgWitness / Languages">
+</picture>
+
+# Interface languages
+
+Translation dictionaries for the application interface. English is the source;
+the JSON files contain 24 translations, giving the panel and documentation the
+same 25-language selection. This includes German, French, Italian, Uzbek, Korean,
+Traditional Chinese, Malay, Polish, Japanese, Thai, Hebrew and Bengali alongside
+the original languages.
+
+## How the pieces fit
+
+| Component | Role |
+| --- | --- |
+| Language JSON files in this directory | Translated interface strings |
+| [`i18n.py`](../i18n.py) | Serves the selected interface dictionary |
+| [`static/i18n.js`](../static/i18n.js) | Applies translations in the browser |
+| `english_fallbacks.json` in the package | Compatibility fallback keys; every current key also has an entry in each translation |
+| [`i18n_keys.py`](../../tools/i18n_keys.py) | Lists interface strings that translations need to cover |
+
+Server-side dictionary reads reuse up to eight parsed catalogues, so each page of
+a long report does not reload its translations. A change to either the language
+file or English fallback file invalidates that catalogue on the next dictionary
+request. Callers receive separate dictionaries, including their plural forms.
+
+## Update a translation
+
+Preserve placeholders and markup, and check the actual UI in the selected language.
+Account-visible message content and signed journal payloads must stay as captured.
+Run `python tools/i18n_keys.py` to list the required interface strings.
+`python tools/publication_guard.py --git-index` rejects missing catalogue entries,
+duplicate JSON keys, invalid plural forms and changed placeholders before publication.
+
+Public-site translations are maintained separately in
+[`website/i18n/`](../../website/i18n/README.md).

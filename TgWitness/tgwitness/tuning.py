@@ -1,0 +1,297 @@
+import re
+from dataclasses import dataclass
+
+MAX_LINES = 30
+MAX_LINE_CHARS = 400
+
+
+class Invalid(ValueError):
+    def __init__(self, key, message):
+        super().__init__(message)
+        self.key = key
+
+
+@dataclass(frozen=True)
+class Parameter:
+    key: str
+    group: str
+    default: object
+    low: int | None = None
+    high: int | None = None
+    unit: str = ""
+    label: str = ""
+    help: str = ""
+
+    @property
+    def kind(self):
+        return "bool" if isinstance(self.default, bool) else "lines" if isinstance(self.default, tuple) else "int"
+
+    def initial(self):
+        return list(self.default) if self.kind == "lines" else self.default
+
+
+GROUPS = (
+    ("collection", "Collection", "Chat list, liveness records and the start of observation."),
+    ("recheck", "Recheck", "How rechecks spread their requests. How often each chat is rechecked is set under "
+                           "Sources → Recording."),
+    ("attachments", "Photos & files", "Download pace and disk reserve. Types and sizes are set under Sources → "
+                                      "Recording."),
+    ("people", "People profiles", "What profiles look for in saved messages."),
+    ("notifications", "Notifications", "Size and pace of notifications and of the panel's notification list."),
+    ("exports", "Exports & history", "Size limits of history snapshots, signed archives and browser downloads."),
+    ("gaps", "Gap analysis", "Missing message numbers in coverage, reports and the archive's capture status. Telegram "
+                             "assigns the numbers; a gap names no actor and no reason."),
+    ("chatstate", "Chat state", "Periodic snapshots of title, description, member counts, pinned messages, administrators "
+                                "and gifts of every enabled source, with differences from the previous snapshot."),
+    ("metrics", "Report metrics", "Anomaly indicators in evidence reports. Each processor is listed in the report with "
+                                  "its version and method."),
+    ("connection", "Telegram connection", "Timeouts and retries. Request timeouts and retries apply the next "
+                                          "time the account connects."),
+    ("performance", "Performance", "How many files this account downloads at once and how gently a newly connected "
+                                   "account starts. Telegram's own waits always apply."),
+    ("actions", "Telegram actions", "Pace of joins, messages and bot buttons from this account. An action beyond "
+                                    "the pace waits in a queue and runs when its turn comes."),
+    ("proxies", "Automatic MTProxy", "When this account's listed proxy is replaced. List downloads and checks are "
+                                     "shared by all accounts and follow the main workspace's values."),
+)
+
+PARAMETERS = (
+    Parameter("gap_analysis", "gaps", True, label="Report missing message numbers",
+              help="Coverage, reports and the capture status list message numbers between observed messages that this "
+                   "collector never saw."),
+    Parameter("gap_account_sequence", "gaps", True, label="Measure the account-wide message numbering",
+              help="Private chats, bots and ordinary groups share one numbering. It is measured only for periods of "
+                   "whole-account collection that kept every such chat and the account's own messages."),
+    Parameter("gap_cluster_min", "gaps", 1, 1, 100000, "message numbers", "Smallest listed gap",
+              "Smaller gaps are still counted."),
+    Parameter("gap_clusters_listed", "gaps", 20, 1, 200, "gaps", "Largest gaps listed for each numbering"),
+    Parameter("gap_service_estimate", "gaps", False, label="Add a service-message estimate",
+              help="How many missing numbers would be service messages at their observed share. An estimate "
+                   "only; it is never subtracted from the missing count."),
+    Parameter("chat_state_minutes", "chatstate", 720, 0, 10080, "minutes", "Snapshot each source every",
+              "0 turns chat-state snapshots off. Each snapshot reads what an ordinary client shows and takes a few "
+              "requests per source."),
+    Parameter("chat_state_pause_seconds", "chatstate", 3, 1, 300, "seconds", "Pause between sources"),
+    Parameter("chat_state_pinned", "chatstate", True, label="Read pinned messages",
+              help="Unpinning leaves no message-level record; snapshots show which messages stopped being pinned."),
+    Parameter("chat_state_admins", "chatstate", True, label="Read administrators and their rights",
+              help="Channels may refuse this list to members who are not administrators; the snapshot then says so."),
+    Parameter("chat_state_gifts", "chatstate", True, label="Read gifts shown on channels and profiles",
+              help="Gifts can be hidden, converted, upgraded or refunded without a service message."),
+    Parameter("chat_state_unchanged", "chatstate", True, label="Record checks that found no change",
+              help="A short record keeps the time of each check; turn off to record changes only."),
+    Parameter("metric_first_time_posters", "metrics", True, label="First-time posters per day"),
+    Parameter("metric_service_ratio", "metrics", True, label="Service messages among message numbers"),
+    Parameter("metric_join_leave", "metrics", True, label="Joins and departures per month"),
+    Parameter("metric_pinned", "metrics", True, label="Pins and unpins per month"),
+    Parameter("metric_rows_listed", "metrics", 60, 10, 400, "rows", "Rows listed per metric",
+              "The most recent rows are listed; totals cover every row."),
+    Parameter("board_max_cards", "exports", 10000, 100, 100000, "cards", "Case Board card soft limit",
+              "Warn after this many cards. Existing annotations remain available."),
+    Parameter("board_max_comments", "exports", 50000, 100, 500000, "comments", "Case Board comment soft limit"),
+    Parameter("board_preview_records", "exports", 5000, 100, 5000, "records", "Case Board slice page size"),
+    Parameter("board_thumbnails", "exports", True, label="Show Case Board media previews",
+              help="Read existing preserved media by hash; no duplicate copies or external requests."),
+    Parameter("dialog_limit", "collection", 1000, 100, 20000, "chats", "Chats read from the account's list",
+              "Sources, folder and whole-account modes read this many dialogs. Chats beyond it are added when "
+              "they become active."),
+    Parameter("scope_refresh_minutes", "collection", 60, 5, 1440, "minutes", "Re-read the chat list every",
+              "Folder and whole-account modes: picks up folder changes and chats that appeared while offline."),
+    Parameter("heartbeat_seconds", "collection", 60, 10, 600, "seconds", "Liveness record every",
+              "Reports treat silence longer than three of these intervals, and at least three minutes, as a gap."),
+    Parameter("checkpoint_minutes", "collection", 5, 1, 1440, "minutes", "Signed checkpoint every",
+              "Local signed checkpoints while observing; one is also saved at start and on an orderly stop."),
+    Parameter("startup_buffer", "collection", 10000, 1000, 200000, "updates", "Updates held while observation starts",
+              "Beyond this number, updates that arrive while observation is starting are dropped and a coverage "
+              "gap is recorded."),
+    Parameter("keyboard_window", "collection", 500, 10, 20000, "records", "Records searched for a bot's keyboard",
+              "To recognise this account's reply-keyboard button presses, the latest keyboard the bot sent is "
+              "looked up among this many recent records of the chat."),
+    Parameter("recheck_first_delay_seconds", "recheck", 30, 0, 3600, "seconds", "First recheck after a start",
+              "After observation starts, priority chats are rechecked after this delay; after a reconnect, every "
+              "observed chat is rechecked without waiting for its schedule. Catch-up goes first."),
+    Parameter("recheck_tick_seconds", "recheck", 60, 10, 3600, "seconds", "Look for due rechecks every"),
+    Parameter("recheck_max_chats", "recheck", 30, 1, 1000, "chats", "Chats per recheck pass",
+              "The rest wait for the next pass. Lower values spread requests out and keep the account clear "
+              "of FloodWait."),
+    Parameter("recheck_pause_seconds", "recheck", 2, 0, 60, "seconds", "Pause between chats",
+              "Priority chats wait half as long."),
+    Parameter("recheck_new_limit", "recheck", 1000, 0, 100000, "messages", "Missed messages recovered per chat and pass"),
+    Parameter("recheck_batch", "recheck", 200, 10, 2000, "messages", "Saved messages asked for again per window",
+              "The newest saved messages and a rolling window of older ones are requested again to find edits "
+              "and messages Telegram no longer returns."),
+    Parameter("admin_log_minutes", "recheck", 60, 0, 1440, "minutes", "Read the admin log of administered chats every",
+              "Channels and supergroups where this account is an administrator: deletions and edits with the account "
+              "that made them, which Telegram keeps for about 48 hours. 0 turns it off. Reads share the recheck "
+              "pace: at most the chats-per-pass number of requests per pass, with the pause between them. While "
+              "this is on, this account's rights in each channel and supergroup are also read every 6 hours."),
+    Parameter("media_min_free_mb", "attachments", 1024, 0, 1048576, "MiB", "Pause downloads below this free disk space",
+              "Queued files stay queued and resume when space is freed. 0 never pauses."),
+    Parameter("media_timeout_seconds", "attachments", 120, 10, 86400, "seconds", "Base download timeout"),
+    Parameter("media_min_speed_kbps", "attachments", 256, 8, 1048576, "KiB/s", "Slowest expected download speed",
+              "Large files get extra time at this speed on top of the base timeout."),
+    Parameter("media_attempts", "attachments", 5, 0, 100, "attempts", "Retries after network errors"),
+    Parameter("media_retry_max_seconds", "attachments", 300, 5, 86400, "seconds", "Longest wait between retries"),
+    Parameter("dossier_max_refs", "people", 25, 1, 1000, "records", "Records cited per fact",
+              "Counts stay complete; only the list of cited records is cut."),
+    Parameter("dossier_similar_bits", "people", 10, 0, 32, "bits of 64", "Similar avatars: differing bits at most",
+              "Avatars whose perceptual hashes differ in at most this many bits are listed as similar."),
+    Parameter("dossier_wallets", "people", True, label="Find crypto wallet addresses"),
+    Parameter("dossier_phones", "people", True, label="Find phone numbers"),
+    Parameter("dossier_usernames", "people", True, label="Find @usernames and mentions by name"),
+    Parameter("dossier_links", "people", True, label="Find links, including links hidden behind text"),
+    Parameter("dossier_patterns", "people", (), unit="lines", label="Your own patterns",
+              help="One per line: a name, a colon and a regular expression, for example "
+                   "Domain: \\b[a-z0-9-]+\\.(top|xyz|shop)\\b. Matches are listed under Mentions with the pattern's name."),
+    Parameter("alerts_check_seconds", "notifications", 60, 10, 3600, "seconds", "Look for new events every",
+              "Changes in observed chats are grouped into one notification per check."),
+    Parameter("alerts_max_lines", "notifications", 25, 1, 500, "lines", "Lines per notification"),
+    Parameter("alerts_excerpt_chars", "notifications", 120, 20, 2000, "characters", "Length of message excerpts"),
+    Parameter("panel_notifications", "notifications", 60, 10, 500, "items", "Items in the panel's notification list"),
+    Parameter("snapshot_max", "exports", 500, 1, 10000, "messages", "Largest history snapshot"),
+    Parameter("export_max_gib", "exports", 4, 1, 256, "GiB", "Largest signed ZIP, uncompressed",
+              "Applies to evidence archives and full chat exports."),
+    Parameter("browser_buffer_mib", "exports", 128, 16, 4096, "MiB", "Downloads kept in browser memory up to",
+              "Browsers that cannot write a download straight to a file keep it in memory up to this size."),
+    Parameter("operation_timeout_seconds", "connection", 120, 30, 7200, "seconds", "Panel action timeout",
+              "How long a panel action that talks to Telegram may take, such as loading chats or a history snapshot."),
+    Parameter("telegram_timeout_seconds", "connection", 15, 5, 300, "seconds", "Request timeout"),
+    Parameter("telegram_request_retries", "connection", 2, 0, 20, "times", "Request retries"),
+    Parameter("telegram_connection_retries", "connection", 5, 0, 100, "times", "Connection retries"),
+    Parameter("reconnect_max_seconds", "connection", 300, 10, 3600, "seconds", "Longest wait between reconnect attempts"),
+    Parameter("media_workers", "performance", 3, 1, 32, "files", "Attachments downloaded at once",
+              "Per attachment worker queue; live priority lanes and history workers have separate limits. "
+              "Downloads start at two, add one after "
+              "each round of files without a Telegram wait and halve when Telegram asks a file download to wait. "
+              "Applies the next time the account connects."),
+    Parameter("media_connections_per_dc", "performance", 4, 0, 8, "connections",
+              "File connections per Telegram data center",
+              "Dedicated file connections use Telegram's advertised media endpoints. Otherwise files share the "
+              "existing connection. The number grows from one while files queue up and shrinks when Telegram "
+              "asks to slow down. They use this account's route. 0 keeps the existing file transport."),
+    Parameter("warmup_minutes", "performance", 15, 0, 120, "minutes", "Gentle start for a newly connected account",
+              "Bulk reads of a newly connected account start at half speed and reach the learned pace over this "
+              "time. 0 turns the gentle start off."),
+    Parameter("journal_fast_writes", "performance", False, label="Faster journal writes",
+              help="Writes each signed record without waiting for the disk to confirm it, which takes about half the "
+                   "time per record. A crash of TgWitness loses nothing, but a power cut or a crash of the computer "
+                   "can lose the last records, and those may already be in a checkpoint or timestamp sent elsewhere. "
+                   "Keep it off unless the disk is protected against power loss. Applies at the next start."),
+    Parameter("action_join_seconds", "actions", 180, 0, 86400, "seconds", "Pause between joins",
+              "Groups, channels and invite links. Telegram answers quick joins with FloodWait."),
+    Parameter("action_joins_per_hour", "actions", 10, 1, 100, "joins", "Joins per hour at most"),
+    Parameter("action_message_seconds", "actions", 10, 0, 3600, "seconds", "Pause between messages",
+              "Messages sent from the panel, including /start when a bot is opened."),
+    Parameter("action_messages_per_hour", "actions", 30, 1, 1000, "messages", "Messages per hour at most"),
+    Parameter("action_button_seconds", "actions", 5, 0, 3600, "seconds", "Pause between bot buttons"),
+    Parameter("action_buttons_per_hour", "actions", 60, 1, 1000, "presses", "Bot button presses per hour at most"),
+    Parameter("proxy_drop_limit", "proxies", 3, 1, 50, "disconnects", "Disconnects before the proxy is replaced",
+              "Counted within the window below."),
+    Parameter("proxy_drop_window_minutes", "proxies", 10, 1, 1440, "minutes", "Window for counting disconnects"),
+    Parameter("proxy_connect_attempts", "proxies", 3, 1, 20, "proxies", "Proxies tried for one connection",
+              "After that many failures the connection waits for the next reconnect attempt."),
+    Parameter("proxy_cooldown_minutes", "proxies", 10, 1, 1440, "minutes", "First rest of a failed proxy",
+              "Each further failure of the same proxy doubles its rest, up to the longest rest below."),
+    Parameter("proxy_cooldown_max_hours", "proxies", 6, 1, 168, "hours", "Longest rest of a failing proxy"),
+    Parameter("proxy_rotate_hours", "proxies", 0, 0, 720, "hours", "Planned switch to another proxy every",
+              "0: only when the proxy fails. Frequent address changes can make Telegram distrust an account."),
+    Parameter("proxy_max_accounts", "proxies", 0, 0, 100, "accounts", "Maximum accounts per proxy",
+              "0: accounts get different proxies while enough work and share one otherwise. 1: every account its "
+              "own proxy; when none is free, the account waits."),
+    Parameter("proxy_fallback_minutes", "proxies", 10, 1, 1440, "minutes", "Direct connection after … without a working proxy",
+              "Only in the mode that allows a direct fallback. A working proxy is used again as soon as one answers."),
+    Parameter("proxy_lists_minutes", "proxies", 60, 15, 1440, "minutes", "Download the proxy lists every",
+              "Main workspace only; shared by all accounts."),
+    Parameter("proxy_probe_minutes", "proxies", 10, 2, 1440, "minutes", "Check every listed proxy every",
+              "Main workspace only; shared by all accounts."),
+)
+BY_KEY = {p.key: p for p in PARAMETERS}
+
+
+def patterns(lines):
+    found = []
+    for line in lines:
+        name, sep, expression = line.partition(":")
+        name, expression = name.strip(), expression.strip()
+        if not sep or not name or not expression or len(name) > 40:
+            raise ValueError("Each line needs a name, a colon and a regular expression.")
+        try:
+            found.append((name, re.compile(expression)))
+        except re.error:
+            raise ValueError("A pattern is not a valid regular expression.") from None
+    return found
+
+
+def validate(parameter, value):
+    if parameter.kind == "bool":
+        if not isinstance(value, bool):
+            raise Invalid(parameter.key, "Choose on or off.")
+        return value
+    if parameter.kind == "lines":
+        if not isinstance(value, list) or not all(isinstance(line, str) for line in value):
+            raise Invalid(parameter.key, "Enter one value per line.")
+        lines = [line.strip() for line in value if line.strip()]
+        if len(lines) > MAX_LINES or any(len(line) > MAX_LINE_CHARS for line in lines):
+            raise Invalid(parameter.key, "At most 30 lines of 400 characters.")
+        if parameter.key == "dossier_patterns":
+            try:
+                patterns(lines)
+            except ValueError as exc:
+                raise Invalid(parameter.key, str(exc)) from None
+        return lines
+    if isinstance(value, float) and value.is_integer():
+        value = int(value)
+    if isinstance(value, bool) or not isinstance(value, int) or not parameter.low <= value <= parameter.high:
+        raise Invalid(parameter.key, "Enter a whole number within the allowed range.")
+    return value
+
+
+def saved_values(store):
+    saved = store.get_setting("parameters", {})
+    return saved if isinstance(saved, dict) else {}
+
+
+def value(store, key):
+    parameter, saved = BY_KEY[key], saved_values(store)
+    if key in saved:
+        try:
+            return validate(parameter, saved[key])
+        except Invalid:
+            pass
+    return parameter.initial()
+
+
+def values(store):
+    return {key: value(store, key) for key in BY_KEY}
+
+
+def changes(store, wanted):
+    current, saved = values(store), dict(saved_values(store))
+    before, after = {}, {}
+    for key, raw in wanted.items():
+        parameter = BY_KEY.get(key)
+        if parameter is None:
+            raise Invalid(key, "Unknown parameter.")
+        new = parameter.initial() if raw is None else validate(parameter, raw)
+        if new != current[key]:
+            before[key], after[key] = current[key], new
+        if new == parameter.initial():
+            saved.pop(key, None)
+        else:
+            saved[key] = new
+    return {k: v for k, v in saved.items() if k in BY_KEY}, before, after
+
+
+def described(store):
+    current = values(store)
+    return {"groups": [{"id": group, "title": title, "description": description, "items": [
+        {"key": p.key, "kind": p.kind, "default": p.initial(), "low": p.low, "high": p.high, "unit": p.unit,
+         "label": p.label, "help": p.help, "value": current[p.key]}
+        for p in PARAMETERS if p.group == group]} for group, title, description in GROUPS]}
+
+
+def texts():
+    found = [text for group in GROUPS for text in group[1:]]
+    for p in PARAMETERS:
+        found += [p.label, p.help, p.unit]
+    return list(dict.fromkeys(text for text in found if text))

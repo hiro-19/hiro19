@@ -1,0 +1,102 @@
+[build-system]
+requires = ["setuptools>=84.1.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tgwitness"
+version = "0.9.3"
+description = "Telegram observation journal with version history and signed evidence exports"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [{name = "PhishDestroy"}]
+keywords = ["telegram", "osint", "evidence", "forensics", "telethon", "anti-fraud"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: Web Environment",
+  "Framework :: FastAPI",
+  "Intended Audience :: Information Technology",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Security",
+]
+dependencies = [
+  "fastapi>=0.115,<1",
+  "uvicorn>=0.30,<1",
+  "telethon>=1.45,<2",
+  "cryptography>=48.0.1,<51",
+  "python-socks[asyncio]>=2.7,<4",
+  "qrcode>=8.2,<9",
+  "tzdata>=2026.3",
+  "pyzipper>=0.4.0,<1",
+  "apprise>=1.11.0,<3",
+  "pillow>=13,<14",
+  "requests[socks]>=2.33.0,<3",
+  "fpdf2>=2.9,<3",
+  "uharfbuzz>=0.45,<1",
+  "lingua-language-detector>=2.1,<3",
+  "pymorphy3>=2.0.6,<3",
+  "pymorphy3-dicts-ru>=2.4.417150.4580142,<3",
+  "snowballstemmer>=3.0.1,<4",
+  "jieba>=0.42.1,<0.43",
+]
+
+[project.optional-dependencies]
+dev = ["httpx>=0.27,<1", "playwright>=1.48,<2", "ruff>=0.15,<1", "pytest>=9.1.1,<10"]
+research = ["requests>=2.33.0,<3", "beautifulsoup4>=4.12,<5"]
+mcp = ["mcp>=2.3,<3", "httpx>=0.28,<1"]
+uk-dictionary = ["pymorphy3-dicts-uk>=2.4.1.1.1663094765,<3"]
+secret-chats = ["kiaro-telethon-secret-chat @ git+https://github.com/KiaroSama/Telethon-Secret-Chat.git@d87bf037b90060383c7b704d8a06ebb98c621c6f"]
+forensics = ["scapy>=2.5,<3", "aiohttp>=3.9,<4"]
+qr = ["opencv-python-headless>=4.14.0.94,<6,!=5.0.0.93", "numpy>=1.26,<3"]
+
+[project.urls]
+Homepage = "https://phishdestroy.github.io/TgWitness/"
+Documentation = "https://phishdestroy.github.io/TgWitness/docs/"
+Source = "https://github.com/phishdestroy/TgWitness"
+Issues = "https://github.com/phishdestroy/TgWitness/issues"
+Changelog = "https://github.com/phishdestroy/TgWitness/blob/main/docs/CHANGELOG.md"
+
+[project.scripts]
+tgwitness = "tgwitness.__main__:main"
+tgwitness-mcp = "tgwitness.mcp_server:main"
+tgwitness-capture = "tgwitness_capture.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["tgwitness*"]
+namespaces = false
+
+[tool.setuptools]
+include-package-data = false
+
+[tool.setuptools.package-data]
+tgwitness_capture = ["static/*.html", "static/*.css", "static/*.js"]
+tgwitness = [
+  "report_console.js", "report_console.css", "report_skin.css", "report_dossier.css", "report_styles.css", "report_layouts.css", "report_profile.css", "report_profile.js", "report_icons.svg",
+  "static/*.html", "static/*.css", "static/*.js", "static/*.svg",
+  "static/core/*.js",
+  "static/components/*.js", "static/components/*.css",
+  "static/views/*.js", "static/views/*.css",
+  "locales/ru.json", "locales/uk.json", "locales/es.json", "locales/pt.json",
+  "locales/fr.json", "locales/de.json", "locales/it.json", "locales/uz.json",
+  "locales/ko.json", "locales/zh-Hant.json", "locales/ms.json", "locales/pl.json",
+  "locales/ja.json", "locales/th.json", "locales/he.json", "locales/bn.json",
+  "locales/tr.json", "locales/ar.json", "locales/fa.json", "locales/ur.json",
+  "locales/hi.json", "locales/id.json", "locales/vi.json", "locales/zh.json",
+  "guide_locales/*.json",
+  "narrative/texts/*.json", "narrative/jurisdictions/*.json", "narrative/examination/*.json",
+  "english_fallbacks.json", "public_proxies.json", "sealed_policy.json", "jurisdictions.json", "verifier_languages.json", "analysis_words.json",
+  "schemas/board-*.json",
+  "client_profiles.json", "client_profiles.LICENSE", "dstack_measurement.LICENSE",
+  "fonts/*.ttf", "fonts/OFL.txt", "fonts/NotoSerif-OFL.txt",
+]
+
+[tool.ruff]
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["F", "E9"]

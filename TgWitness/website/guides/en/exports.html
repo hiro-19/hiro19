@@ -1,0 +1,59 @@
+<p class="guide-outcome">Hand someone files they can check themselves against your workspace.</p>
+<div class="flow-strip export-flow" aria-label="Evidence handoff: retain a trusted reference, export the signed ZIP, verify with the recipient"><span>Retain a reference</span><span>Export signed ZIP</span><span>Recipient verifies</span></div>
+<p>New to signatures and checkpoints? <a href="@@GUIDE_CONCEPTS@@#chain">Change a sample record</a> and see which checks catch it.</p>
+<p>Keeping a copy away from the collector? Go to <a href="#s3">S3 setup</a>, <a href="#s3-retention">Object Lock</a> or <a href="#s3-restore">verified recovery</a>.</p>
+<h2 id="retain">Retain a trusted reference</h2>
+<p>Write down the workspace key fingerprint somewhere other than the collector. While collecting, turn on evidence mode so checkpoints get RFC 3161 and OpenTimestamps timestamps, or run a <a href="@@GUIDE_WITNESS@@">witness</a> that posts to a public channel. Keep signed checkpoints elsewhere too: the recipient checks the key, the time and an earlier journal state against them.</p>
+<h2 id="export">Download the signed ZIP</h2>
+<p><strong>Exports</strong> → signed evidence ZIP. It has the whole journal and a signed file manifest. Shape the readable report in <a href="@@GUIDE_REPORTS@@">Report studio</a>, or send only selected data as a <a href="@@GUIDE_HANDOVER@@">handover extract</a>.</p>
+<p>HTML, PDF and JSON reports carry their own seals. CSV is just a working copy; for integrity use the CSV inside the verified ZIP.</p>
+<h2 id="verify">Verify with a trusted copy of TgWitness</h2>
+<p>In the project environment, with your own fingerprint and paths:</p>
+<pre><code>python -m tgwitness.verify evidence.zip --fingerprint TRUSTED_PUBLIC_KEY_SHA256 --tsa-ca TSA-ROOT.pem --checkpoint retained-checkpoint.json --require evidence</code></pre>
+<p>A pass shows <code>key_pinned: true</code> and <code>checkpoint_checked: true</code>. <code>--require evidence</code> also needs third-party time for the last record, such as a checked timestamp: the checkpoint is signed with your own key, so on its own it is not enough. Keep that output next to the archive. The checkpoint has to be at or before the end of the export.</p>
+<h2 id="meaning">Use the verification result</h2>
+<ul><li><strong>Files:</strong> the manifest binds their hashes, the signatures bind the journal. Any change shows up.</li><li><strong>Identity:</strong> the fingerprint you kept proves it's the key you expected.</li><li><strong>Earlier state:</strong> a checkpoint compares the export with a journal prefix saved before the handoff.</li><li><strong>Coverage:</strong> gaps, acquisition results and a send → edit → delete test show what this setup actually caught.</li></ul>
+<p>Details: <a href="@@REF_EVIDENCE@@#verification-scope">what verification proves</a>.</p>
+
+<h2 id="s3">Set up the S3 off-site copy</h2>
+<p><strong>Exports → Off-site copy</strong> in your workspace. Works with AWS S3 and anything S3-compatible. It copies journal segments, saved files, checkpoints with their timestamps and finished chat exports, each encrypted with <code>AES-256-GCM</code> before it leaves the collector.</p>
+<p>The online demo shows these controls with uploads off. Only enter real credentials in your own install.</p>
+<figure><a href="@@ROOT@@assets/off-site-copy.png"><img src="@@ROOT@@assets/off-site-copy.png" width="1136" height="825" alt="Complete Off-site copy panel: endpoint, region, bucket, access keys, schedule, Object Lock and recovery key controls" loading="lazy"></a><figcaption>The complete panel with advanced options expanded. No storage credentials are shown.</figcaption></figure>
+<div class="table-wrap"><table><caption>Storage settings in Exports → Off-site copy</caption><thead><tr><th scope="col">Field</th><th scope="col">What to enter</th></tr></thead><tbody>
+<tr><th scope="row">Endpoint</th><td>Storage URL, no bucket path or credentials. Example: <code>https://s3.example.invalid</code>.</td></tr>
+<tr><th scope="row">Region</th><td>Whatever your provider needs. Default <code>us-east-1</code>.</td></tr>
+<tr><th scope="row">Bucket</th><td>An existing bucket you can write to. Example: <code>example-case-backup</code>.</td></tr>
+<tr><th scope="row">Folder in the bucket</th><td>Prefix, default <code>tgwitness</code>. A per-workspace prefix is added on top.</td></tr>
+<tr><th scope="row">Access key ID / Secret access key</th><td>Both together, stored in the vault. Leave both empty later to keep them.</td></tr>
+<tr><th scope="row">Path-style addresses</th><td>On: <code>endpoint/bucket</code>. Off: <code>bucket.endpoint</code>. Depends on the provider.</td></tr>
+<tr><th scope="row">Copy interval</th><td>1 to 1,440 minutes, default 5. Only while the app runs.</td></tr>
+<tr><th scope="row">Object Lock retention</th><td>Days and mode, if the bucket supports Object Lock. Zero keeps the bucket default.</td></tr>
+</tbody></table></div>
+<ol>
+<li>Create the bucket, fill in destination and credentials with <strong>Keep an off-site copy</strong> unticked, hit <strong>Save off-site copy</strong>.</li>
+<li><strong>Test connection</strong> uploads an encrypted test object.</li>
+<li><strong>Download encryption key</strong> and keep it away from the collector. No key, no recovery.</li>
+<li>Tick <strong>Keep an off-site copy</strong>, save, then <strong>Copy now</strong> or let the schedule run.</li>
+</ol>
+
+<h2 id="s3-retention">Check retention and copy progress</h2>
+<p>Under <strong>More options</strong> pick retention days and <code>GOVERNANCE</code> or <code>COMPLIANCE</code>. TgWitness reads the retention back from an uploaded object and tells you: confirmed, missing or check failed.</p>
+<p>The panel shows the last pass, object count, bytes, copied journal boundary and errors. A missing local file is reported and retried next pass, the rest keeps copying.</p>
+<p>Uploads go over Direct, SOCKS5 or HTTP. With an MTProxy-only route the copy waits with an error.</p>
+
+<h2 id="s3-key">Keep the recovery key separately</h2>
+<p>The key JSON has the decryption key, destination, prefix and key fingerprint. For recovery you need it plus storage credentials with read access.</p>
+<p>Changed endpoint, bucket or prefix? Download the key again. A fresh copy starts at the new destination; old chat exports stay where they were.</p>
+
+<h2 id="s3-restore">Restore and verify on another machine</h2>
+<p>You need a TgWitness install you trust, the key JSON, read-only storage credentials and an empty folder:</p>
+<h3>Windows PowerShell</h3>
+<pre><code>$env:TGWITNESS_S3_ACCESS_KEY = 'YOUR_READ_ACCESS_KEY'
+$env:TGWITNESS_S3_SECRET_KEY = 'YOUR_READ_SECRET_KEY'
+python -m tgwitness.replica restore --key-file tgwitness-replica-key.json --out restored-evidence</code></pre>
+<h3>Linux / macOS</h3>
+<pre><code>export TGWITNESS_S3_ACCESS_KEY='YOUR_READ_ACCESS_KEY'
+export TGWITNESS_S3_SECRET_KEY='YOUR_READ_SECRET_KEY'
+python -m tgwitness.replica restore --key-file tgwitness-replica-key.json --out restored-evidence</code></pre>
+<p>Everything is checked in a private temp folder first: the whole journal, checkpoints, file hashes and sizes. Unsafe paths, conflicting segments or a journal shorter than its checkpoint fail, and then nothing is written out.</p>
+<p>On success you get <code>events.jsonl</code>, <code>media/</code>, <code>checkpoints/</code> and <code>exports/</code>. Keep the command's JSON output with them, and compare against checkpoints or witness records you kept yourself.</p>

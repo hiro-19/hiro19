@@ -1,0 +1,36 @@
+<p class="guide-outcome">Run several accounts together, each still with its own records and key.</p>
+<p>A group puts connection status, start/pause, shared settings and exports on one screen. Handy when several accounts work the same case.</p>
+
+<h2 id="overview">Open the group overview</h2>
+<p>Open the group in <strong>Accounts</strong>. Each account shows its state, route, latency and last saved message. <strong>Needs attention</strong> lists the broken ones, <strong>Fix</strong> takes you straight there.</p>
+<p><strong>Start all</strong> / <strong>Pause all</strong> ask before acting. <strong>Group settings</strong> are shared, but an account's own values stay until you replace them.</p>
+
+<section class="workflow-lab" data-workflow="groups" aria-labelledby="groups-example-title">
+  <h3 id="groups-example-title">Review a route change across a group</h3>
+  <p class="sample-tag">Synthetic example · illustrative checks and outcomes</p>
+  <ol class="workflow-steps">
+    <li data-workflow-step><strong>Select.</strong> Choose the group and review which accounts will change.</li>
+    <li data-workflow-step><strong>Prepare.</strong> Keep an account's own route when it should remain separate.</li>
+    <li data-workflow-step><strong>Check.</strong> Test the proposed connection and inspect the measured results.</li>
+    <li data-workflow-step><strong>Apply.</strong> Recheck before saving and review the outcome for each account.</li>
+  </ol>
+  <div data-workflow-scene>
+    <article class="workflow-node" data-workflow-node="0"><h4>Case team</h4><p>Channel collector · Group collector · Reference account</p><p>3 separate workspaces</p></article>
+    <article class="workflow-node" data-workflow-node="1"><h4>Reviewed selection</h4><p>2 accounts take the proposed route.</p><p>Reference account keeps its own route.</p></article>
+    <article class="workflow-node" data-workflow-node="2"><h4>Preparation checks</h4><p>Channel collector: Telegram transport 84 ms</p><p>Group collector: Telegram transport 91 ms</p><p>These numbers are fictional measurements for the example.</p></article>
+    <article class="workflow-node" data-workflow-node="3"><h4>Application results</h4><p>Channel collector: route saved, observation resumed.</p><p>Group collector: recheck failed, previous settings restored.</p><p>Reference account: own route retained.</p></article>
+  </div>
+  <div data-workflow-controls hidden><button type="button" data-workflow-play><span data-workflow-play-label>Play example</span><span data-workflow-pause-label hidden>Pause</span></button><button type="button" data-workflow-next>Next step</button><button type="button" data-workflow-reset>Reset example</button><span data-workflow-progress></span></div>
+  <p class="workflow-status" data-workflow-status role="status" aria-live="polite"></p>
+</section>
+
+<h2 id="route">Change the route with a review step</h2>
+<ol><li><strong>Change the group route</strong>, pick the type and settings.</li><li><strong>Review selection</strong>: see which accounts change and which have their own route.</li><li><strong>Prepare and check</strong> tests a fresh Telegram connection, plus the exit IP where possible.</li><li><strong>Apply checked connection</strong> and look at each result. Running accounts resume, idle ones stay idle.</li></ol>
+<p>Latency is the Telegram connection setup time, the exit IP is what the route showed at check time. Results can differ per account.</p>
+
+<h2 id="shared-chats">Use overlapping access</h2>
+<p><strong>Chats several accounts see</strong> lists shared sources and their coverage. Channels and supergroups can be exported by several accounts at once with <strong>Export with … accounts</strong>. Private chats and basic groups can't, their message numbers are per account.</p>
+
+<h2 id="export-group">Export the group as a package</h2>
+<p><strong>Export group</strong> gives one ZIP with every account's signed export and a signed list of them. Each keeps its own fingerprint for verification. A merged timeline you still build yourself.</p>
+<p>Next: <a href="@@GUIDE_REPORTS@@">reports</a>, <a href="@@GUIDE_CASE_BOARD@@">Case Board</a>, <a href="@@GUIDE_EXPORTS@@">verifying exports</a>.</p>

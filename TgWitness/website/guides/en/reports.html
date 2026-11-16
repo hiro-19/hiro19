@@ -1,0 +1,37 @@
+<p class="guide-outcome">Take the reader from the case question straight to the saved records.</p>
+<p>Report studio puts together the data you pick, change histories, charts and your findings. Eight designs, HTML and native PDF. Every HTML, PDF and JSON report is sealed with your key.</p>
+
+<h2 id="build">Build a report in three steps</h2>
+<ol><li><strong>Exports → Configure and preview → Data</strong>: whole workspace, or pick chats, authors, dates (UTC, when TgWitness saw the record) and record types.</li><li><strong>Design &amp; contents</strong>: pick a design and what goes in: charts, participants, transcript, changes, Case Board items, your case details and notes.</li><li><strong>Preview</strong>: check counts, activity, samples and missing ID ranges. Save, then download the format you need.</li></ol>
+
+<section class="workflow-lab" data-workflow="report" aria-labelledby="report-example-title">
+  <h3 id="report-example-title">Arrange the same saved material for a reader</h3>
+  <p class="sample-tag">Synthetic example · schematic layout, not a generated report</p>
+  <ol class="workflow-steps">
+    <li data-workflow-step><strong>Select.</strong> Choose two chats and the observation period for the case.</li>
+    <li data-workflow-step><strong>Compose.</strong> Choose a layout and the sections that answer the question.</li>
+    <li data-workflow-step><strong>Preview.</strong> Review the selected counts and the saved before-and-after text.</li>
+    <li data-workflow-step><strong>Verify.</strong> Generate the final file and check its signature against the trusted workspace fingerprint.</li>
+  </ol>
+  <fieldset data-workflow-choices="design" hidden><legend>Diagram layout</legend><button type="button" data-workflow-choice="classic">Classic</button><button type="button" data-workflow-choice="reading_series">Reading series</button></fieldset>
+  <fieldset data-workflow-choices="contents" hidden><legend>Diagram contents</legend><button type="button" data-workflow-choice="context">Message context</button><button type="button" data-workflow-choice="changes">Saved changes</button></fieldset>
+  <div data-workflow-scene>
+    <article class="workflow-node" data-workflow-node="0"><h4>Selected observations</h4><p>2 chats · 1 observation day</p><p>Messages, edits and deletion notices</p></article>
+    <article class="workflow-node" data-workflow-node="1"><h4>Report structure</h4><div data-workflow-design="classic"><h5>Changed payment destination</h5><p>Case question → scope → findings → record references</p><div data-workflow-content="context"><strong>Message context</strong><p>Observation #142: “Use the new payment link.”</p></div><div data-workflow-content="changes"><strong>Saved changes</strong><p>Before: old.example.invalid → After: new.example.invalid</p></div></div></article>
+    <article class="workflow-node" data-workflow-node="2"><h4>Review the selection</h4><p>18 observations · 2 saved edits</p><p>Sent, edited and observed times have separate labels.</p></article>
+    <article class="workflow-node" data-workflow-node="3"><h4>Final deliverable</h4><p>Signed PDF + signed JSON, or a signed ZIP with its readable report</p><p>Recipient checks the file and trusted fingerprint.</p></article>
+  </div>
+  <div data-workflow-controls hidden><button type="button" data-workflow-play><span data-workflow-play-label>Play example</span><span data-workflow-pause-label hidden>Pause</span></button><button type="button" data-workflow-next>Next step</button><button type="button" data-workflow-reset>Reset example</button><span data-workflow-progress></span></div>
+  <p class="workflow-status" data-workflow-status role="status" aria-live="polite"></p>
+</section>
+
+<h2 id="designs">Choose a reading style</h2>
+<p><strong>Classic, Editorial, Briefing, Analytics, Technical, Overview, Reading series, and Ledger &amp; margin</strong>: same records, different look. Switching keeps your selection and notes. Any of the 25 languages.</p>
+<p>PDFs are built with bundled fonts, no browser needed. Chinese, Japanese and Korean need a font like Noto Sans CJK on the server (system-wide or in <code>TGWITNESS_FONT_DIR</code>), otherwise you get HTML and JSON only.</p>
+
+<h2 id="read">Read a change with its context</h2>
+<p>Edits show before and after, deletions show the last saved version. Replies, forwards, reactions, buttons and attachments keep their references.</p>
+<p>The design preview uses the first 50,000 records, the data preview counts everything exactly. For final page layout, generate the PDF.</p>
+
+<h2 id="sharing">Choose the recipient's copy deliberately</h2>
+<p>Filters only shape the report, the evidence ZIP still has the full journal and files. If the recipient should get less, use a <a href="@@GUIDE_HANDOVER@@">minimized handover</a>. More: <a href="@@REF_CASE_REPORTS@@">report contents</a>, <a href="@@GUIDE_EXPORTS@@">verifying the export</a>.</p>

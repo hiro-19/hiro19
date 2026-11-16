@@ -1,0 +1,167 @@
+[TgWitness](../README.md) / [Documentation](README.md) · [Evidence and verification](EVIDENCE.md)
+
+![Evidence & verification](assets/presentation/chapter-evidence.svg)
+
+# Account export and minimized disclosure
+
+An account export reserves the account's acquisition slot. Live observation can
+continue while the archive is discovered, downloaded, verified and packaged.
+Pause another history or export job before starting a competing acquisition.
+Pausing the archive leaves observation running, and pausing observation retains the archive job.
+
+Exports on different accounts can run at the same time. A Takeout-only job waiting
+for approval releases its account, so a separate regular-session export can start
+while approval is pending. An active acquisition still reserves that account.
+
+As the installation administrator, choose **Home → Export my account**, or **Exports → Telegram account → Configure account export**. Sign in if needed, review the scope, and explicitly start the export. Continuous observation is not required. **Saved observations** is a separate export of the existing journal; its ZIP includes all sources regardless of journal filters. Every workspace has its own jobs, signing identity and storage. Issued panel access, including an unrestricted ordinary export grant, cannot open these account-wide routes.
+
+Sender and text filters expand under **Filter by sender or message text**. **Account data & connection method** contains optional account categories and the Takeout/regular-session choice; its summary shows the active choices even when closed. Closing these sections keeps their settings. Export and report drafts remain in the current panel session while changing views; they are not saved through a browser reload. Existing jobs remain reachable from either export choice.
+
+This workflow exports data currently accessible to the connected account. The default **Automatic** method starts with [Telegram Takeout](https://core.telegram.org/api/takeout), which returns the accessible history in its current state, including left channels, saved contacts and other account data. If Telegram imposes a waiting period before Takeout starts, Automatic continues at once with the regular session; the journal records `account_export.transport` and the signed inventory names the method used and lists the change as an omission. **Telegram Takeout session only** waits for the approval instead, and **Regular session only** never asks for Takeout. Secret Chats are recorded live by the [Secret Chat module](PSEUDO-SECRET.md), and edits by live observation. The regular session has different coverage and records unsupported categories.
+
+**Home → Export everything** starts an export with every chat kind, every attachment type, the profile, contacts, profile photos, stories, session metadata and other account data, in all formats: the signed TgWitness archive with Telegram Desktop JSON and HTML views. **Choose what to export** opens the form below with the same defaults.
+
+Takeout is the official export API also used by Telegram Desktop. TgWitness can write
+Desktop-compatible JSON directly from its own acquisition; importing someone else's
+archive is not required. Chat and message IDs are available through both transports.
+Export speed and Takeout's approval delay depend on Telegram's limits for the account,
+whether a chat is public or forwardable. Measure the same scope and media settings before comparing speed.
+
+For up to 20 explicitly selected chat IDs, regular-API export resolves those peers
+directly before considering the account's complete dialog inventory. A readable
+public channel can therefore be exported without joining it, even when it is absent
+from the dialog list. Uncached peers fall back to the ordinary inventory. The
+archive filter remains enforced: if Telegram does not return a dialog and archived
+chats are excluded, the unknown archive status is recorded as an omission.
+Takeout keeps its split-range inventory procedure. Neither path joins chats or
+changes forwarding permissions.
+In Desktop-compatible JSON, channels that Telegram marks `left` appear under
+`left_chats`, including readable public channels the account has not joined.
+
+Both `FLOOD_WAIT` and `FLOOD_PREMIUM_WAIT` pause requests for the full server-requested
+period. The account's deadline is persisted across reconnects and restarts; a shorter
+later wait cannot shorten it. Retries are bounded, cancellation preserves sealed pages,
+and API credentials are not rotated to bypass a rate limit. No Premium purchase is made.
+
+## Choose what is collected
+
+| Setting | Meaning |
+| --- | --- |
+| Purpose | Record why this acquisition is needed. Do not put unnecessary names or sensitive case details here. |
+| Report language | Choose the language of the readable report's labels. Original message text remains unchanged; untranslated template labels use English. The language is fixed with the signed job options. |
+| Chat kinds / chat IDs | All selected kinds, or just the listed chats; Saved Messages belongs to private chats. Archived chats are separately selectable. |
+| Dates | UTC. The panel's From and Through calendar dates are both included. The API uses inclusive `from_utc` and exclusive `to_utc`; the panel sends the start of the day after Through. An empty bound leaves that side unrestricted. |
+| Sender IDs | Only messages by the listed senders; an empty list includes all senders. |
+| Text contains | Case-insensitive literal phrases, matched with OR. Sender/date/own-message conditions combine with AND. |
+| Own messages | Keep only outgoing messages. |
+| Media types | Select attachment categories, or clear all to avoid downloading message files. |
+| File / total media limits | Per-file MiB and total downloaded-media GiB. Text, receipts, readable reports and ZIP overhead require additional disk space. |
+| Account categories | Profile, contacts, profile photos, stories, session metadata and other Takeout data have separate controls. |
+
+The **Minimize collection** preset disables files and account metadata. Sender/content filters apply before retained message pages and media downloads. Telegram still transmits API history pages containing messages needed to evaluate those filters: filtering is not a promise that unselected messages never enter process memory. Other ongoing observation in the workspace has its own scope and retention settings.
+
+Profile-photo history, stories, session metadata and other account data are selected by default. Disable them, and the profile and contacts, when the case needs messages only. If attachments or metadata are unnecessary, excluding them during acquisition avoids retaining another private copy in this export.
+
+Photo payloads use the still-image variant identified in their metadata and hash manifests, including photos with an animated avatar variant. That animation is not substituted for the selected still image. A shorter or longer payload than the observed size is recorded as a failed attachment, and a changed representation during file-reference renewal is rejected. These failures leave the archive partial while retaining the message records. Independent verification also rejects saved attachments whose signed length contradicts their observed size or representation, including in older archives.
+
+If a dedicated media connection fails temporarily, attachment reads use the
+standard file connection. After one minute, the dedicated route is retried in
+the background while downloads continue. This recovery keeps the configured
+connection limit and applies separately to each data center. Telegram flood
+waits and authorization failures still propagate.
+
+## Message numbers and activity map
+
+Every account archive contains `message-gaps.json` and `map.html`. Channels and supergroups
+number their messages per chat, so each absent number between the first and last exported
+message is a message of that chat. Private chats, bots and basic groups share one number
+sequence for the whole account: an absent number there belonged to some chat. Its chat is
+proven when an exported reply or pin points at the number; otherwise it is estimated from
+which chats were active in the time between the neighbouring messages, and the remainder is
+attributed to chats not in the export. Each run carries its time window, neighbours, the
+shares per chat and a confidence label. A limited scope (filters, unselected chats) is
+stated, because absent numbers then include messages outside the selection.
+
+`map.html` shows a calendar, chats over time and weekday-by-hour grids for messages and for
+absent numbers, with tables of every chat and the largest runs. Chat pages show their own
+calendar, participants over time for groups, and a mark in the transcript where messages are
+absent. `verify.py` recomputes `message-gaps.json` from the signed pages and rejects a
+changed file.
+
+The activity map lists the largest channel and supergroup gaps, including their
+number ranges and neighbouring message times. Open a range to jump to its marked
+position in the paginated transcript. These marks record absent numbers between
+saved neighbours; deletion events, their times and message texts come only from
+saved records. Wide tables scroll within their cards on small screens.
+
+Long transcripts include a page index with message-date ranges and a calendar.
+Choose a month to open its first record in captured page order. Month counts use
+recorded message dates in UTC; undated records remain in the transcript. Page
+navigation includes the first, last and nearby pages, and opens the message
+section directly. The index works offline without JavaScript.
+
+## Resume, coverage and verification
+
+Each job freezes its options and account identity. Inventory and captured pages are signed; page receipts record hashes, cursors, times, attachment outcomes and their preceding receipt. Only committed pages advance progress. Restart/resume checks those records before continuing. A changed account, changed signed page or inconsistent receipt chain is rejected. Options cannot be edited halfway through an acquisition: start another job for another scope.
+
+Pause releases the running account operation. Restarting the application leaves unfinished work available for explicit resume. An expired Takeout session requires an explicit resume; changing Telegram split ranges can require a new acquisition. Resume retains previous observations, so a long-running export is not one atomic snapshot. Other account-changing operations and conflicting exports are blocked during acquisition. Wait for packaging to finish before deleting a workspace.
+
+Resume shows **Verifying saved export data…** immediately and checks saved content in the background before contacting Telegram. The panel remains available during verification. Pause waits for the verification worker to finish safely before releasing the account; it also works when pressed immediately after starting or resuming. On slow storage that wait can be long. Failed integrity checks leave a failed job with an explanation and retain its files.
+
+If Telegram ends the account's authorization during inventory, history or attachment acquisition, the job pauses without marking the unfinished page complete. Reconnect the same account and resume to continue from the last saved page. Unavailable message placeholders advance the history cursor but do not end the read: older available messages are still requested, and a placeholder is not presented as a captured message or a confirmed deletion.
+
+The panel distinguishes a completed selected scope from a partial archive, and records omissions and failed reads. Deliberately excluded files are different from failed or unavailable files. Inspect coverage even when integrity verification succeeds. No local reader can prove Telegram returned every message that ever existed.
+
+Finished ZIPs remain available for repeated and HTTP-range downloads. An account archive contains `manifest.json`, `manifest.sig`, signed `job.json`, `inventory.json`, `receipts/`, authoritative `data/*.jsonl`, selected `media/`, readable HTML and a verifier. Pin the collector fingerprint through an independent channel, then verify using a trusted installation:
+
+```sh
+python -m tgwitness.verify account-export.zip --fingerprint TRUSTED_SHA256
+```
+
+For archives whose expanded contents exceed 4 GiB, set an explicit adequate `--max-gib`. The panel verifies its authenticated, completed local archives using their declared expanded size and published ZIP digest; the external CLI keeps its independent size limit. Verify before opening the readable HTML. The archive's bundled verifier is convenient, but a verifier obtained independently avoids trusting executable code delivered with the evidence.
+
+The Ed25519 signature and SHA-256 hashes detect changes after the collector committed the relevant bytes. Review that result together with the recorded collection scope, acquisition intervals, external timestamp receipts and the provenance checks available for the selected deployment. Later observations are recorded separately, preserving earlier captured versions.
+
+## Prepare a disclosure for a lawyer or another recipient
+
+After downloading a finished export, keep the original ZIP and open `index.html`
+from an extracted copy. The report explains its scope, available coverage and
+limits. Its record references combine the archive reference, document path and
+record number, so a recipient can locate the same entry in the HTML or printout.
+For a worked example, [open the fictional report](https://phishdestroy.github.io/TgWitness/demo/report/).
+
+From a finished account export, choose **Prepare a sharing copy**. This builds a separate signed derivative. The source ZIP remains unchanged and private; do not send it together with a minimized derivative unless the recipient is authorized to receive its full contents. Choose its report language separately. Changing the language or any selection setting requires another preview before creation.
+
+1. Enter the disclosure purpose and select dates, sender IDs and literal text criteria.
+2. Choose whether to keep identities, reveal only listed participants, or pseudonymize everyone. In either pseudonymized mode chat IDs/titles and message IDs are also replaced. Pseudonyms are stable inside one disclosure and change between independently prepared disclosures.
+3. Keep message text, omit it entirely, or add literal names/phrases to mask. In private modes the tool also masks known hidden sender names and alternate usernames, whole-token sender IDs, direct-chat names, links, email addresses and phone-like strings. Known-name matching handles Unicode case folding, including `Straße`/`STRASSE`. Generic group/channel titles are not automatically removed from message text. If the known-identity masking limit is exceeded, narrow the source export or omit text; the tool refuses to silently skip later names. These are best-effort rules, not general anonymization.
+4. Leave files excluded unless the recipient needs them. Included originals retain their pixels, audio, text and metadata. They are **not** anonymized by the tool.
+5. Preview the counts, warnings and sample transformed messages, then explicitly confirm creation. Samples are limited to 12 messages and 2,000 text characters each. This is a sample, not a full review of the result. Changing settings requires another preview. A preview expires after 15 minutes and is bound to that administrator session and exact original ZIP; it cannot be reused after creation. A new preview invalidates the previous one for the same job and session.
+6. Inspect the complete resulting `index.html` and `messages.jsonl` locally before handing it over. If it reveals unnecessary information, create a new disclosure with stronger exclusions. Do not edit the signed ZIP in place.
+
+### Messages left out by the selection
+
+**Preview.** A disclosure does not look complete when it is not. Inside every chat that keeps at least one disclosed message, messages the selection left out appear as markers, `[withheld by selection — rule: sender]` (or `text`, `period`). Choose **Messages left out by the selection**: one marker for each run of consecutive withheld messages (default) or one for each message. Markers carry only the rule and a count, never text, sender, date or files. Chats with nothing disclosed are left out entirely, so the package does not reveal that they exist.
+
+Disclosed replies say what they answer: a message included in this copy, a message withheld by the selection, or a message that is not in the source export (deleted before the export or never exported; the export cannot tell which). A withheld message that a disclosed reply answers always gets its own marker, so the reply points at a record that explains why it is empty. These three states are distinct from deletions and collection gaps, which belong to the source export.
+
+In `messages.jsonl` (format `tgwitness-account-disclosure-v2`) each message has `state`: `disclosed`, or `withheld` with `rules` and `count`. A disclosed reply has `reply_to` with the target `id` and `state` (`disclosed`, `withheld`, `not_in_source`). The manifest counts disclosed messages, chats, media and `withheld` messages. `verify.py` rejects a marker that carries content and a reply that points at a record missing from the package; version 1 packages verify as before.
+
+The minimized format omits structured account profiles, contacts, avatars, sessions, stories, raw Telegram objects, forwarding headers, reply quotations, contact cards and location metadata. It excludes the original JSONL files, private filter settings, pseudonym key and identity map. Selected text, explicitly retained identities and included files can still contain the same names, IDs or phrases used in those filters; they need separate review. The private policy and pseudonym key are retained encrypted in the local vault for the job; deleting the job clears its associated private disclosure records. The public policy records filter counts rather than filter values. The stated purpose is public in the manifest and HTML: explicit private criteria and, in pseudonymized modes, known hidden identities are masked there too, including when message text is omitted. Keep the purpose free of unnecessary personal details; unknown identifying context can remain.
+
+Its manifest binds the derivative files, public policy and original ZIP's hash. Verification can establish integrity and, if the source is supplied locally, matching source linkage:
+
+```sh
+python -m tgwitness.verify minimized-disclosure.zip --fingerprint TRUSTED_SHA256
+python -m tgwitness.verify minimized-disclosure.zip --fingerprint TRUSTED_SHA256 --evidence account-export.zip
+```
+
+Source linkage shows which archive and collector key the disclosure came from. The disclosure carries only the selected content; review the selection and the removal of identifying details against the original export.
+
+## Sharing and hosted capture
+
+Select the messages and files the recipient needs, review the complete sharing copy, and retain the source separately. Record the delivered ZIP's hash so the recipient can identify and verify that exact copy. Pseudonymization replaces the selected identifiers; included text and original files remain part of the review.
+
+GitHub Actions supports full-account and selected-chat exports through Takeout or the regular API, plus a one-chat event journal. The [hosted capture guide](https://phishdestroy.github.io/TgWitness/docs/capture/) explains settings verification and the 120-minute limit. To verify a sharing copy derived from hosted capture, check its source hash against the original archive and verify that archive's attestation with the [mode-specific checks](EVIDENCE.md#verification-scope).
+
+[Evidence format](EVIDENCE.md) · [Case reports](CASE_REPORTS.md)

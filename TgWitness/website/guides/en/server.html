@@ -1,0 +1,14 @@
+<p class="guide-outcome">Keep the collector up and the data safe through restarts.</p>
+<h2 id="launch">Choose a launch method</h2>
+<p>Native: the <a href="@@GUIDE_START@@">launcher</a> plus service templates in <a href="@@REPO_URL@@/blob/@@BRANCH@@/deploy/README.md">deploy/</a>. Docker, from the project folder:</p>
+<pre><code>docker compose up -d --build --wait
+docker compose exec tgwitness cat /data/panel-token.txt</code></pre>
+<p>The panel listens on localhost:8787. Open it locally or through an SSH tunnel, with the token from the second command.</p>
+<h2 id="storage">Keep the whole data directory</h2>
+<p>Native: <code>data/live</code>. Docker: the <code>tgwitness-data</code> volume. Journals, sessions and keys belong together. A signed export is evidence, not a backup.</p>
+<ol><li>Stop collecting first.</li><li>Copy the whole data directory somewhere safe, off the host.</li><li>Try restoring it on a separate install before you trust it.</li></ol>
+<h2 id="check">Check after a restart</h2>
+<p>Check the workspace and key, the connection, sources and that new messages come in. TgWitness catches up what Telegram still has, not everything that happened while it was down.</p>
+<p class="callout">"Healthy" container means the web server answers. Whether collection works, a test message and the witness will tell.</p>
+<h2 id="public">Publish only what you intend</h2>
+<p>HTTPS, volumes, updates and restore are in the deployment reference. What's actually been tested: <a href="@@REPO_URL@@/blob/@@BRANCH@@/docs/VERIFICATION.md">validation record</a>.</p>

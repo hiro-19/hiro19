@@ -1,0 +1,138 @@
+{
+  "format": "tgwitness-examination-v1",
+  "code": "BE",
+  "name_en": "Belgium",
+  "name_local": "Belgique / België / Belgien",
+  "court_languages": [
+    "fr",
+    "nl",
+    "de"
+  ],
+  "local_language": "fr",
+  "legal_family": "civil law",
+  "checked_at": "2026-11-11",
+  "expert_term": {
+    "local": "expert judiciaire",
+    "en": "judicial expert entered in the national register of judicial experts (or, exceptionally, an unregistered expert appointed by reasoned decision)"
+  },
+  "procedures": [
+    {
+      "route": "criminal",
+      "appointment": {
+        "basis": "Code judiciaire articles 555/6 and 555/15",
+        "summary_en": "Judicial experts normally require registration. A reasoned appointment outside the register is possible under article 555/15; the title then applies only to that assignment. Criminal-procedure powers to order the examination remain unverified.",
+        "source": "https://www.justice.belgium.be/fr/services_en_ligne/registre_national_et_frais_de_justice/registre_national/obligation_dinscription"
+      },
+      "questions": {
+        "basis": null,
+        "summary_en": null,
+        "source": null
+      },
+      "report_contents": {
+        "basis": "Code judiciaire articles 555/11(3), 555/14 and 555/15",
+        "items_en": [
+          "Registered expert: the registration oath covers later assignments. The ordinary report identification is register number, signature, name and title; statutory anonymous identification has separate rules.",
+          "Expert appointed outside the register: the written completion oath must precede the signature."
+        ],
+        "items_local": [
+          "Je jure que je remplirai ma mission en honneur et conscience, avec exactitude et probité",
+          "Je jure avoir rempli ma mission en honneur et conscience, avec exactitude et probité"
+        ],
+        "source": "https://www.ejustice.just.fgov.be/eli/loi/1967/10/10/1967101053/justel"
+      },
+      "rights_duties": {
+        "basis": "Code judiciaire articles 555/9, 555/12 and 555/16",
+        "summary_en": "Registered experts must remain available to the judicial authorities, continue training, observe independence and impartiality, and keep contact details current. Experts may decline an assignment. Suspension or removal from the register is governed by article 555/12.",
+        "source": "https://www.justice.belgium.be/fr/services_en_ligne/registre_national_et_frais_de_justice/registre_national/dispositions_generales"
+      }
+    },
+    {
+      "route": "civil",
+      "appointment": {
+        "basis": "Code judiciaire articles 962 and 972; register requirements in articles 555/6 and 555/15",
+        "summary_en": "The judge defines the examination and appoints the expert. An installation meeting is arranged when the judge considers it necessary or all appearing parties request it. The opinion does not bind the judge.",
+        "source": "https://www.ejustice.just.fgov.be/eli/loi/1967/10/10/1967101055/justel"
+      },
+      "questions": {
+        "basis": "Code judiciaire articles 972, 973 and 976",
+        "summary_en": "The order defines the assignment. The judge controls scope, deadlines and adversarial procedure. Parties may comment on provisional findings before the final report.",
+        "source": "https://www.ejustice.just.fgov.be/eli/loi/1967/10/10/1967101055/justel"
+      },
+      "report_contents": {
+        "basis": "Code judiciaire article 978; identification requirements in article 555/11(3)",
+        "items_en": [
+          "Report date and record of party attendance, oral statements and requests",
+          "List of party documents and notes, reproduced only as needed for discussion",
+          "Expert signature, subject to statutory anonymous-identification rules",
+          "File the final report and detailed costs with the registry; send copies to parties and counsel. Return original party documents to their owners."
+        ],
+        "items_local": [
+          "Le rapport final est daté et relate la présence des parties lors des travaux, leurs déclarations verbales et leurs réquisitions.",
+          "Il contient en outre le relevé des documents et des notes remis par les parties aux experts; il ne peut les reproduire que dans la mesure où cela est nécessaire à la discussion.",
+          "Le rapport est, à peine de nullité, signé par l'expert."
+        ],
+        "source": "https://www.ejustice.just.fgov.be/eli/loi/1967/10/10/1967101055/justel"
+      },
+      "rights_duties": {
+        "basis": "Code judiciaire articles 966, 972, 973, 555/9 and 555/16",
+        "summary_en": "The expert works under judicial supervision, respects adversarial procedure and discloses independence or impartiality concerns. Judicial recusal grounds apply to experts. Register duties also apply.",
+        "source": "https://www.ejustice.just.fgov.be/eli/loi/1967/10/10/1967101055/justel"
+      }
+    }
+  ],
+  "statute": {
+    "title_local": "Code judiciaire, articles 555/6 à 555/16 : registre national des experts judiciaires",
+    "title_en": "Judicial Code, articles 555/6-555/16: national register of judicial experts",
+    "source": "https://www.ejustice.just.fgov.be/eli/loi/1967/10/10/1967101053/justel"
+  },
+  "liability": [
+    {
+      "route": "all",
+      "norm": "Code pénal 2024 (Loi du 29 février 2024), Livre II, articles 647-652; commencement and application to experts require confirmation",
+      "summary_en": "The cited provisions concern false testimony, false declaration and false oath. Their current application to experts, commencement and applicable penalty levels have not been verified.",
+      "warning_local": "Je jure que je remplirai ma mission en honneur et conscience, avec exactitude et probité",
+      "warning_en": "Registration oath of judicial experts (Code judiciaire art. 555/14): I swear that I will fulfil my mission in honour and conscience, with accuracy and integrity. Dutch: 'Ik zweer dat ik mijn opdracht in eer en geweten, nauwgezet en eerlijk zal vervullen'. German: 'Ich schwöre, dass ich den mir erteilten Auftrag auf Ehre und Gewissen genau und ehrlich erfüllen werde'.",
+      "wording": "official",
+      "source": "https://www.ejustice.just.fgov.be/cgi_loi/article.pl?language=fr&sum_date=&pd_search=2024-04-08&numac_search=2024A02052&page=1&lg_txt=F&caller=list&2024A02052=1&trier=promulgation&dt=CODE+PENAL&fr=f&choix1=ET&choix2=ET"
+    },
+    {
+      "route": "all",
+      "norm": "Code judiciaire article 555/12",
+      "summary_en": "A reasoned decision may suspend or remove registration after the expert can comment. A temporary measure is limited to one year; temporary removal can be renewed by further reasoned decisions.",
+      "warning_local": null,
+      "warning_en": null,
+      "wording": "official",
+      "source": "https://www.ejustice.just.fgov.be/eli/loi/1967/10/10/1967101053/justel"
+    }
+  ],
+  "declaration": {
+    "basis": "Code judiciaire article 555/15: written completion oath for an expert appointed outside the national register. It precedes the signature. Registered experts instead rely on article 555/14 and use the report identification required by article 555/11(3).",
+    "text_local": "FR: Je jure avoir rempli ma mission en honneur et conscience, avec exactitude et probité. NL: Ik zweer dat ik mijn opdracht in eer en geweten, nauwgezet en eerlijk vervuld heb. DE: Ich schwöre, dass ich den mir erteilten Auftrag auf Ehre und Gewissen, genau und ehrlich erfüllt habe.",
+    "text_en": "I swear that I have fulfilled my mission in honour and conscience, with accuracy and integrity.",
+    "wording": "official",
+    "source": "https://www.ejustice.just.fgov.be/eli/loi/1967/10/10/1967101053/justel",
+    "route": "all"
+  },
+  "standards": [],
+  "esignature": {
+    "law_local": "Règlement (UE) n° 910/2014 (eIDAS), tel que modifié par le Règlement (UE) 2024/1183",
+    "law_en": "Regulation (EU) No 910/2014 (eIDAS) as amended by Regulation (EU) 2024/1183; the Belgian implementing provisions were not verified",
+    "qualified_term_local": "signature électronique qualifiée",
+    "source": "https://eur-lex.europa.eu/legal-content/FR/TXT/?uri=CELEX:02014R0910-20241018"
+  },
+  "timestamp": {
+    "basis": "Regulation (EU) No 910/2014 Art. 41 as amended by Regulation (EU) 2024/1183 (Art. 41(3) deleted; cross-border recognition moved to Art. 24a(6))",
+    "qualified_recognition": "A qualified electronic time stamp enjoys the presumption of the accuracy of the date and time it indicates and of the integrity of the data to which they are bound (Art. 41(2)). An electronic time stamp may not be denied legal effect or admissibility solely because it is electronic or not qualified (Art. 41(1)). Qualified time stamps from other Member States are recognised (Art. 24a(6)).",
+    "source": "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:02014R0910-20241018"
+  },
+  "open_questions": [
+    "Criminal-procedure powers to order expert examinations and the full contents required in criminal expert reports remain unverified.",
+    "Current Criminal Code articles 647-652, their commencement, application to experts and penalty levels require confirmation.",
+    "Criminal-party rights to propose expert questions and request additional work remain unverified.",
+    "Conditions and implementation of anonymous expert identification under article 555/11 require case-specific confirmation.",
+    "The German oath spelling in the French consolidated article 555/15 differs from the normalised text reproduced here; compare the applicable official German publication before using that formula.",
+    "The royal decree establishing the expert deontological code has not been reviewed.",
+    "Belgian national adoptions of ISO/IEC 27037, 27041, 27042 and 27043 and official digital-forensics guidance remain unverified.",
+    "Belgian eIDAS implementing provisions in the Code de droit économique and Civil Code Book 8, and local-language signature terminology, require confirmation."
+  ]
+}

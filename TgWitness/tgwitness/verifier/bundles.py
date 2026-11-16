@@ -1,0 +1,193 @@
+from .common import (
+    Ed25519PublicKey,
+    MAX_JSON_BYTES,
+    VerifierTooOld,
+    base64,
+    bounded_lines,
+    hashlib,
+    io,
+    open_archive,
+    read_manifest,
+    read_member,
+    strict_json,
+)
+ASIC_MIMETYPE = b"application/vnd.etsi.asic-e+zip"
+
+
+def container_members(archive, names, listed):
+    if "mimetype" in listed or "mimetype" not in names \
+            or archive.getinfo("mimetype").file_size != len(ASIC_MIMETYPE) \
+            or read_member(archive, "mimetype") != ASIC_MIMETYPE:
+        return []
+    return sorted(name for name in names if name not in listed
+                  and (name == "mimetype" or name.startswith("META-INF/")))
+
+
+def verify_bundle(path, expected_fingerprint=None, checkpoint=None, tsa_ca=None, check_drand=False, max_gib=None,
+                  check_bitcoin=False):
+    from .account import verify_account_export
+    from .board import verify_board
+    from .chain import canonical, fingerprint, is_format
+    from .completeness import COMPLETENESS_KINDS, completeness_certificate
+    from .coverage import Coverage
+    from .journal import media_reference, verify_checkpoint, verify_event_lines
+    from .outside import OutsideRecords, confirm_drand
+    from .parallel import MemberHashes
+    from .reports import archive_seal, check_sums, report_companions
+    from .timestamps import verify_anchors, verify_tdx_starts
+    from .witness import assurance
+    with open_archive(path, max_gib=max_gib) as archive:
+        names = archive.namelist()
+        manifest = read_manifest(archive)
+        if not is_format(manifest["format"], "evidence-v1"):
+            raise VerifierTooOld("Unsupported evidence format")
+        public = manifest["public_key"]
+        fp = fingerprint(public)
+        if expected_fingerprint and fp != expected_fingerprint:
+            raise ValueError("Public key differs from the independently trusted fingerprint")
+        Ed25519PublicKey.from_public_bytes(base64.b64decode(public, validate=True)).verify(
+            base64.b64decode(read_member(archive, "manifest.sig"), validate=True), canonical(manifest))
+        container = container_members(archive, names, manifest["files"])
+        if set(names) - set(container) != set(manifest["files"]) | {"manifest.json", "manifest.sig"}:
+            raise ValueError("Unexpected or missing bundle members")
+        hashing = MemberHashes(archive, path, manifest["files"])
+
+        def hashes_match():
+            found = hashing.result()
+            for name, digest in manifest["files"].items():
+                if found[name] != digest:
+                    raise ValueError("File hash mismatch: " + name)
+        if not hashing.futures:
+            hashes_match()
+        try:
+            sums = check_sums(archive, manifest)
+
+            def describes(subject):
+                return (subject.get("event_count") == manifest["event_count"]
+                        and subject.get("head_hash") == manifest["head_hash"]
+                        and subject.get("events_sha256") == manifest["files"].get("events.jsonl"))
+            seal = archive_seal(archive, "report.html", public) if "report.html" in manifest["files"] else None
+            if seal and not describes(seal["subject"]):
+                raise ValueError("The report seal describes a different journal")
+            companions = report_companions(archive, manifest, public, describes)
+            gap_settings = None
+            if "coverage.json" in manifest["files"]:
+                saved_coverage = strict_json(read_member(archive, "coverage.json", MAX_JSON_BYTES))
+                saved_gaps = saved_coverage.get("gap_summary") if isinstance(saved_coverage, dict) else None
+                if isinstance(saved_gaps, dict):
+                    gap_settings = saved_gaps.get("parameters")
+            observed, outside = Coverage(gap_settings), OutsideRecords()
+            sequence_events = []
+            hash_files, account_exports, starts = set(), [], []
+
+            def take(event):
+                if event["kind"] == "process.started":
+                    starts.append(event)
+                if event["kind"] == "sealed.account_export":
+                    item = event["payload"]
+                    if (account_exports or item.get("file") != "account-export.zip"
+                            or manifest["files"].get(item["file"]) != item.get("sha256")
+                            or archive.getinfo(item["file"]).file_size != item.get("bytes")):
+                        raise ValueError("Sealed account export differs from its journal binding")
+                    account_exports.append(item)
+                if event["kind"] == "media.hashed":
+                    digest = hashlib.sha256(canonical(event["payload"].get("server_hashes"))).hexdigest()
+                    name = "hashes/" + digest + ".json"
+                    if manifest["files"].get(name) != digest:
+                        raise ValueError("File-hash manifest differs from the signed journal")
+                    hash_files.add(name)
+                media = media_reference(event)
+                if media:
+                    digest, size = media
+                    name = "media/" + digest
+                    if manifest["files"].get(name) != digest:
+                        raise ValueError("Preserved media is missing or differs from the signed journal: " + digest)
+                    if size is not None and archive.getinfo(name).file_size != size:
+                        raise ValueError("Preserved media size differs from the signed journal: " + digest)
+                observed.add(event)
+                outside.add(event)
+                if event["kind"] in COMPLETENESS_KINDS:
+                    sequence_events.append(event)
+            known = anchored_counts(archive, checkpoint)
+            with archive.open("events.jsonl") as stream:
+                result = verify_event_lines(bounded_lines(io.BufferedReader(stream, 1024 * 1024)), public, take, known)
+            if {name for name in manifest["files"] if name.startswith("hashes/")} != hash_files:
+                raise ValueError("Unreferenced journal file-hash manifest")
+            if ("account-export.zip" in manifest["files"]) != bool(account_exports):
+                raise ValueError("Unbound sealed account export")
+            if account_exports:
+                with archive.open("account-export.zip") as incoming:
+                    account = verify_account_export(incoming, fp, max_gib=max_gib)
+                binding = account_exports[0]
+                if account["job_id"] != binding["job_id"] or account["complete_within_scope"] != binding["complete_within_scope"]:
+                    raise ValueError("Account export coverage differs from its journal binding")
+                result["account_export"] = account
+            if result["events"] != manifest["event_count"] or result["head_hash"] != manifest["head_hash"]:
+                raise ValueError("Manifest does not match journal")
+        except Exception:
+            if hashing.futures:
+                hashes_match()
+            raise
+        except BaseException:
+            hashing.cancel()
+            raise
+        if hashing.futures:
+            hashes_match()
+        result["coverage"] = observed.result()
+        result["outside"] = outside.result()
+        result["sequence_continuity"] = completeness_certificate(sequence_events)
+        if check_drand and outside.rounds:
+            result["outside"]["drand"]["checked"] = confirm_drand(outside.rounds)
+        result["producer"] = manifest.get("producer")
+        if container:
+            result["container"] = {"format": "ASiC-E", "unchecked_members": container}
+        result.update(format=manifest["format"], files_checked=len(manifest["files"]), sha256sums=sums,
+                      report_seal=seal, report_json=companions["json"], report_parts=companions["parts"],
+                      report_pdf=companions["pdf"], case=manifest.get("case") or {})
+
+        def hash_at(seq):
+            if seq == 0:
+                return "0" * 64
+            if known.get(seq):
+                return known[seq]
+            with archive.open("events.jsonl") as stream:
+                for line in bounded_lines(stream):
+                    event = strict_json(line)
+                    if event["seq"] == seq:
+                        return event["hash"]
+            return None
+        if checkpoint:
+            checkpoint_anchor = verify_checkpoint(checkpoint, public, result["events"], hash_at,
+                                                  check_drand=check_drand)
+            result["checkpoint_event_count"] = checkpoint["statement"]["event_count"]
+            if checkpoint_anchor:
+                result["checkpoint_drand_anchor"] = {**checkpoint_anchor, "confirmed_by_relays": bool(check_drand)}
+        result["anchors"] = verify_anchors(archive, names, public, result["events"], hash_at, tsa_ca, check_bitcoin)
+        from .evidence_records import verify_evidence_records
+        records = verify_evidence_records(archive, names, container, tsa_ca)
+        if records:
+            result["evidence_records"] = records
+        result["board"] = verify_board(archive, manifest, checkpoint)
+        tdx = verify_tdx_starts(starts, public)
+        if tdx:
+            result["tdx"] = tdx
+        result["key_pinned"] = bool(expected_fingerprint)
+        result["checkpoint_checked"] = checkpoint is not None
+        result["assurance"] = assurance(result)
+        return result
+
+
+def anchored_counts(archive, checkpoint):
+    statements, wanted = [checkpoint] if isinstance(checkpoint, dict) else [], {}
+    for name in archive.namelist():
+        if name.startswith("anchors/") and name.endswith(".json"):
+            try:
+                statements.append(strict_json(read_member(archive, name)))
+            except ValueError:
+                continue
+    for value in statements:
+        statement = value.get("statement") if isinstance(value, dict) else None
+        count = statement.get("event_count") if isinstance(statement, dict) else None
+        if type(count) is int and count > 0:
+            wanted[count] = None
+    return wanted

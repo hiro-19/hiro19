@@ -1,0 +1,35 @@
+<p class="guide-outcome">Turn saved messages into a case your team works on together.</p>
+<p>Bookmarks, exact quotes, slices and discussion, each linked to its source. Every change is a signed revision.</p>
+
+<h2 id="first-card">From a message to a case card</h2>
+<ol><li><strong>Investigation → Case Board</strong> (Standard or Expert mode). Make a collection for the case.</li><li>In <strong>Journal</strong> or a chat hit <strong>To board</strong> (or <strong>B</strong>). The card lands in Inbox, give it a title and move it.</li><li>Select text in a message, <strong>Highlight → board</strong> keeps the exact quote and version. Note why it matters.</li><li>Discuss, set a status, jump back to the source whenever needed. <strong>Presentation</strong> walks the team through it.</li></ol>
+
+<section class="workflow-lab" data-workflow="board" aria-labelledby="board-example-title">
+  <h3 id="board-example-title">Follow one changed payment link</h3>
+  <p class="sample-tag">Synthetic example · local illustration</p>
+  <ol class="workflow-steps">
+    <li data-workflow-step><strong>Capture.</strong> Open saved observation #142 and its message version.</li>
+    <li data-workflow-step><strong>Bookmark.</strong> Keep the quote, source reference and your question on a card.</li>
+    <li data-workflow-step><strong>Review.</strong> Add a team comment and move the card to Review.</li>
+    <li data-workflow-step><strong>Present.</strong> Walk through the collection and open the cited source context.</li>
+  </ol>
+  <div data-workflow-scene>
+    <article class="workflow-node" data-workflow-node="0"><h4>Saved observation #142</h4><p>“Use the new payment link.”</p><p>Operations chat · message 38 · observed 09:12 UTC</p></article>
+    <article class="workflow-node" data-workflow-node="1"><h4>Card: changed destination</h4><blockquote>Use the new payment link.</blockquote><p>Question: which destination appeared in the earlier version?</p></article>
+    <article class="workflow-node" data-workflow-node="2"><h4>Team review</h4><p>Analyst: compare with observation #101.</p><p>Status: Review · revision retained</p></article>
+    <article class="workflow-node" data-workflow-node="3"><h4>Source context</h4><p>Card → saved version → earlier observation</p><p>The annotation and the Telegram observation remain separately identifiable.</p></article>
+  </div>
+  <div data-workflow-controls hidden><button type="button" data-workflow-play><span data-workflow-play-label>Play example</span><span data-workflow-pause-label hidden>Pause</span></button><button type="button" data-workflow-next>Next step</button><button type="button" data-workflow-reset>Reset example</button><span data-workflow-progress></span></div>
+  <p class="workflow-status" data-workflow-status role="status" aria-live="polite"></p>
+</section>
+
+<h2 id="slices">Save a useful range once</h2>
+<p>Shift-click two messages for <strong>Slice between</strong>, use <strong>Slice by time</strong>, or save the current Journal filters. <strong>Show records added since bookmark</strong> shows what came in later.</p>
+<p>Time slices use observation time; message-ID slices follow those messages as they change.</p>
+
+<h2 id="team">Give each colleague the right role</h2>
+<p><strong>Reviewer</strong> reads, <strong>Analyst</strong> adds cards and comments, <strong>Operator</strong> also manages collections and decisions. Chat permissions apply to cards too.</p>
+
+<h2 id="deliver">Carry the work into a deliverable</h2>
+<p>Slices export as signed JSON or CSV. Reports can include bookmarks, slices and comments, set that in <a href="@@GUIDE_REPORTS@@">Report studio</a>. For a limited recipient, use a <a href="@@GUIDE_HANDOVER@@">handover</a>.</p>
+<p>Details: <a href="@@REF_CASE_BOARD@@">Case Board reference</a>.</p>

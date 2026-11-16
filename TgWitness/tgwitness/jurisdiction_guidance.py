@@ -1,0 +1,353 @@
+from copy import deepcopy
+from functools import lru_cache
+from hashlib import sha256
+from html import escape
+import json
+from pathlib import Path
+from typing import Literal
+import unicodedata
+
+from pydantic import BaseModel, ConfigDict, ValidationInfo, field_validator, model_validator
+
+from .narrative import catalog as examination
+
+CATALOG = Path(__file__).with_name("jurisdictions.json")
+TITLE = "Jurisdiction guidance"
+NOTICE = ("Research summary to prepare the material for the selected court. "
+          "Confirm the court, applicable law, collection authority, disclosure duties and required formalities "
+          "with a qualified local practitioner. The profile shapes this guidance; verification results come from the archive.")
+LOCAL_NOTICE = "Local-language summary; the original texts of the law and the evidence are authoritative."
+PROCEDURES = {"civil": "Civil / commercial", "criminal": "Criminal"}
+
+METHODS = [
+    {"id": "signing", "name": "Collector signature", "helps": "Detect changes to signed bytes when the trusted key is known independently.",
+     "retain": "Original signed ZIP, verification output, separately retained key fingerprint and checkpoints.",
+     "strengthen": "Hand the fingerprint to the recipient through a separate channel before the archive, and add third-party time and a witness with its own key: together they fix the journal beyond the key holder."},
+    {"id": "time", "name": "Independent timestamps", "helps": "Bound when a particular checkpoint or archive hash already existed.",
+     "retain": "Original receipt, exact checkpoint binding and verification against independent trust roots; confirmed Bitcoin proof for OTS.",
+     "strengthen": "Stamp checkpoints on a schedule so every record falls under a receipt; the verifier names the records each receipt covers."},
+    {"id": "storage", "name": "Encrypted storage with retention", "helps": "Preserve separately held copies and restrict deletion during an enforced retention period.",
+     "retain": "Object versions, retention mode and dates, access policy, custody and independent retrieval checks. Keep decryption keys available to the authorized recipient.",
+     "strengthen": "Use S3 Object Lock in compliance mode with a retention date, under an administrator separate from the operator: each copy stays undeletable until that date."},
+    {"id": "witness", "name": "Independent witness", "helps": "Compare independently held observations or signed checkpoints and explain gaps and disagreements.",
+     "retain": "Witness identity or independently trusted key, scope, signed records, challenge responses and explicit coverage gaps.",
+     "strengthen": "Run the witness on another operator's machine with its own key and keep its key-control record; daily Bitcoin seals and live t.me posts fix its time, and a late check-in is flagged as overdue."},
+    {"id": "tee", "name": "Attested collection (TEE / Phala)", "helps": "Support claims about a measured execution environment within a stated threat model.",
+     "retain": "Verifiable quote, fresh challenge, certificate chain, measurements, deployed code or reproducible build mapping, key binding and output hashes.",
+     "strengthen": "Verify the quote, expected measurements, collector-key binding and freshness, and keep the results with the corresponding acquisition records."},
+    {"id": "visual", "name": "Browser capture, screenshots and video", "helps": "Show visible context and the steps a person or capture process observed.",
+     "retain": "Original media and metadata, capture method and environment, source identifiers, session timing, hashes and links to the corresponding structured records.",
+     "strengthen": "Link each recording to the structured records it shows; inside a TEE the attested process signs exactly what it captured."},
+    {"id": "human", "name": "Human witness, expert or notary", "helps": "Explain collection, identity and custody, answer challenges and complete route-specific certifications or formalities.",
+     "retain": "Who did what and when, qualifications, signed declaration or applicable certificate, custody transfers and the exact material examined.",
+     "strengthen": "A declaration covers the operator's role in the collection; a provider account owned by a separate party takes the host and hypervisor out of the operator's control."},
+]
+REFERENCES_NOTE = "Practice guidance, not law. It does not decide admissibility or replace the rules of the selected court."
+REFERENCES = [
+    {"title": "ENFSI Best Practice Manual for the Forensic Examination of Digital Technology (ENFSI-BPM-FIT-01, version 01, November 2015)",
+     "url": "https://enfsi.eu/wp-content/uploads/2016/09/1._forensic_examination_of_digital_technology_0.pdf",
+     "note": "Issued by the European Network of Forensic Science Institutes as a framework of procedures, quality principles and training for forensic laboratories examining digital technology."},
+]
+
+
+@lru_cache(maxsize=1)
+def _catalog():
+    raw = CATALOG.read_bytes()
+    value = json.loads(raw)
+    value["sha256"] = sha256(raw).hexdigest()
+    original_hash = value["sha256"]
+    by_code = {examination.ALIASES.get(p["code"], p["code"]): p for p in value["profiles"]}
+    hashes = {}
+    for code in sorted(examination.codes()):
+        record = examination.load(code)
+        hashes[code] = record["catalog_sha256"]
+        profile = by_code.get(code)
+        if profile is None:
+            profile = examination_profile(record)
+            value["profiles"].append(profile)
+        profile["examination_code"] = code
+        profile["examination_routes"] = [{key: part[key] for key in ("route", "id", "scope") if key in part}
+                                          for part in examination.available_routes(record)
+                                          if part.get("route") in PROCEDURES]
+        profile["scope_profiles"] = {part["id"]: examination_profile({**record, "procedures": [part]})
+                                     for part in examination.available_routes(record)
+                                     if part.get("id") in profile.get("examination_only_scopes", [])}
+    value["profiles"].sort(key=lambda p: (p["code"] == "RU", p["name"].casefold()))
+    value["component_hashes"] = {"guidance": original_hash, "examination": hashes}
+    value["sha256"] = sha256(json.dumps(value["component_hashes"], sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    return value
+
+
+def examination_profile(record):
+    profile = {"code": record["code"], "name": record["name_en"], "language": "en",
+               "scope": record["name_en"] + ". Expert examination guidance. " + (record.get("review_scope") or ""),
+               "reviewed_on": record["checked_at"], "criminal_status": "needs_local_review",
+               "examination_only": True, "has_local_summary": False,
+               "human": "Confirm the selected court, appointment and filing requirements before completing the expert report.",
+               "tasks": [], "local": "", "local_criminal": ""}
+    for procedure, prefix in (("civil", ""), ("criminal", "criminal_")):
+        parts = [part for part in record.get("procedures", []) if part.get("route") == procedure]
+        entries = [part[key] for part in parts for key in ("appointment", "questions", "report_contents", "rights_duties")
+                   if part.get(key)]
+        sources = {entry["source"]: entry.get("basis") or record["name_en"] for entry in entries if entry.get("source")}
+        profile[prefix + "sources"] = [{"title": title, "url": url} for url, title in sources.items()]
+        profile[prefix + "law"] = "; ".join(dict.fromkeys(entry["basis"] for entry in entries if entry.get("basis")))
+        basis = " ".join(dict.fromkeys(entry["summary_en"] for entry in entries if entry.get("summary_en")))
+        profile["criminal" if procedure == "criminal" else "basis"] = basis or profile[prefix + "law"]
+    profile["prepare"] = profile["basis"]
+    return profile
+
+
+def catalog():
+    return deepcopy(_catalog())
+
+
+class Options(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    jurisdiction: str = ""
+    procedure: Literal["civil", "criminal"] = "civil"
+    procedure_scope: str | None = None
+    include_in_report: bool = True
+    local_note: bool = False
+    include_methods: bool = False
+
+    @field_validator("jurisdiction")
+    @classmethod
+    def known_jurisdiction(cls, value):
+        if not value:
+            return value
+        profile = next((p for p in _catalog()["profiles"] if value in (p["code"], p.get("examination_code"))), None)
+        if profile is None:
+            raise ValueError("Choose a jurisdiction from the supplied catalog.")
+        return profile["code"]
+
+    @model_validator(mode="after")
+    def known_scope(self, info: ValidationInfo):
+        if info.context and info.context.get("editing_report_settings"):
+            return self
+        if not self.jurisdiction or not self.include_in_report:
+            return self
+        profile = next(p for p in _catalog()["profiles"] if p["code"] == self.jurisdiction)
+        record = examination.load(profile.get("examination_code"))
+        part = examination.route(record, self.procedure, self.procedure_scope) if record else {}
+        if not part and profile.get("examination_only"):
+            raise ValueError("No " + self.procedure + " examination route is available for " + self.jurisdiction)
+        return self
+
+
+def package_review(assessment):
+    if assessment is None:
+        return None
+    items = []
+    for check in assessment.get("checks", []):
+        key, status = check["id"], check["status"]
+        facts = check.get("facts", {})
+        action = check["verification"]
+        if key == "integrity":
+            action = ("Give the recipient the original ZIP and a signing-key fingerprint obtained through a separate trusted channel. "
+                      "Run the independent verifier and compare any previously retained checkpoint. A successful local check does not settle key ownership.")
+        elif key == "time" and status != "checked_locally":
+            if facts.get("other_stamps", 0):
+                action = ("Validate the existing receipts against the exact checkpoint and independent trust roots. "
+                          "If no receipt validates, obtain and retain a timestamp for the current archive hash; it bounds the archive from the time it is obtained.")
+            else:
+                action = ("Obtain and retain an independent timestamp for the current archive hash. "
+                          "For ongoing collection, configure checkpoint timestamps and check their receipts. A timestamp obtained now bounds the archive from this moment.")
+        elif key == "time" and facts.get("unanchored_tail", 0):
+            action = ("Retain and independently verify the existing receipt. Timestamp a new checkpoint covering the later records; "
+                      "until then, report those records separately from the timestamped prefix.")
+        elif key == "coverage" and (facts.get("gaps", 0) or facts.get("notes", 0) or facts.get("unobserved", 0)):
+            action = ("Identify which recorded gaps overlap the relevant events and explain them in the examination notes. "
+                      "Label any later recovery as a separate acquisition. New settings apply from now on, and past gaps stay recorded.")
+        elif key == "witness":
+            if facts.get("tdx", 0) or facts.get("drand", 0):
+                action = ("Independently verify the included beacon rounds or TDX quotes and their binding to the captured output. "
+                          "Compare a separately held witness archive where available; record unresolved checks explicitly.")
+            else:
+                action = ("Retain the current signed checkpoint outside the collector under separate control. "
+                          "For future collection, configure an independent witness if needed and preserve its results. A witness added now covers collection from that point.")
+        elif key == "custody" and not facts.get("operator_fields", 0):
+            action = ("Identify the collector and document the acquisition method, dates and every transfer of the original ZIP. "
+                      "Complete the applicable case details and examination notes, then preserve the new export and its hash.")
+        result = check.get("result") or {}
+        items.append({"check": key, "title": check["title"], "status": status,
+                      "finding": result.get("text", "Not assessed").format(**result.get("values", {})),
+                      "action": action, "references": list(check.get("references", []))})
+    return {"basis": "Derived from this copy's export assessment. Verification results come from the archive itself, and the court decides admissibility.",
+            "supporting_files_included": assessment.get("supporting_files_included") is True,
+            "items": items}
+
+
+def build(options=None, *, assessment=None):
+    choice = Options.model_validate(options or {})
+    if not choice.jurisdiction or not choice.include_in_report:
+        return None
+    data = _catalog()
+    profile = next(p for p in data["profiles"] if p["code"] == choice.jurisdiction)
+    record = examination.load(profile.get("examination_code"))
+    part = examination.route(record, choice.procedure, choice.procedure_scope) if record else {}
+    profile = profile.get("scope_profiles", {}).get(choice.procedure_scope, profile)
+    if not part and profile.get("examination_only"):
+        raise ValueError("No " + choice.procedure + " examination route is available for " + choice.jurisdiction)
+    if profile.get("examination_only"):
+        profile = examination_profile({**record, "procedures": [part]})
+    criminal = choice.procedure == "criminal"
+    return {
+        "format": "tgwitness-jurisdiction-guidance-v1", "language": "en",
+        "catalog_version": data["version"], "catalog_sha256": data["sha256"],
+        "research_date": profile["reviewed_on"],
+        "status": profile["criminal_status"] if criminal else "research_draft",
+        "jurisdiction": profile["code"], "name": profile["name"], "scope": profile["scope"],
+        "procedure": choice.procedure, "procedure_scope": choice.procedure_scope, "notice": NOTICE,
+        "examination": {"code": record["code"], "catalog_sha256": record["catalog_sha256"],
+                        "route": deepcopy(part), "open_questions": record.get("open_questions", []),
+                        "review_scope": record.get("review_scope"), "review_updates": record.get("review_updates", [])}
+                       if record else None,
+        "package_review": package_review(assessment),
+        "law": profile["criminal_law"] if criminal else profile["law"],
+        "basis": profile["criminal"] if criminal else profile["basis"],
+        "preparation": profile["criminal"] if criminal else profile["prepare"],
+        "tasks": [] if criminal else list(profile["tasks"]),
+        "human": ("Ask a local criminal-procedure practitioner which witness, expert, certificate or official collection procedure is required. "
+                  "Civil filing routes must not be assumed to apply.") if criminal else profile["human"],
+        "sources": deepcopy(profile["criminal_sources"] if criminal else profile["sources"]),
+        "local_summary": {"language": profile["language"], "notice": LOCAL_NOTICE,
+                          "text": profile["local_criminal"] if criminal else profile["local"]}
+                         if choice.local_note and profile.get("has_local_summary", True) else None,
+        "safeguards": deepcopy(METHODS) if choice.include_methods else [],
+        "practice_references": deepcopy(REFERENCES) if choice.include_methods else [],
+    }
+
+
+def attach(assessment, options):
+    guidance = build((options or {}).get("jurisdiction_guidance"), assessment=assessment)
+    if guidance:
+        assessment["jurisdiction_guidance"] = guidance
+    return assessment
+
+
+def html(data):
+    if not data:
+        return ""
+    e = lambda value: escape(str(value), quote=True)
+    parts = ['<section class="card panel case-assessment" id="jurisdiction-guidance" lang="en" dir="ltr">',
+             '<h2>' + TITLE + '</h2><h3>' + e(data["name"]) + ' · ' + e(PROCEDURES[data["procedure"]]) + '</h3>',
+             '<p class="assessment-review">' + e(data["notice"]) + '</p>']
+    if review := data.get("package_review"):
+        parts.append('<h3>What this copy needs next</h3><p>' + e(review["basis"]) + '</p>')
+        if not review["supporting_files_included"]:
+            parts.append('<p><strong>Get the original signed ZIP before verification. This standalone report does not contain the supporting proof files.</strong></p>')
+        parts.append('<div class="scroll"><table><thead><tr><th scope="col">Check</th><th scope="col">This copy</th><th scope="col">Next step</th></tr></thead><tbody>')
+        for item in review["items"]:
+            parts.append('<tr><th scope="row"><a href="#assessment-' + e(item["check"]) + '">' + e(item["title"])
+                         + '</a></th><td>' + e(item["finding"]) + '</td><td>' + e(item["action"]) + '</td></tr>')
+        parts.append('</tbody></table></div>')
+    else:
+        parts.append('<p>Export adds findings and next steps for the actual copy, based on verifying its journal and supporting proofs.</p>')
+    parts.extend(['<p>' + e(data["scope"]) + '</p><p class="hint">Research date: ' + e(data["research_date"])
+             + ' · ' + e(data["status"].replace('_', ' ')) + ' · Catalog ' + e(data["catalog_version"]) + '</p>',
+             '<h3>Legal basis</h3><p><strong>' + e(data["law"]) + '</strong></p><p>' + e(data["basis"]) + '</p>'])
+    if data["preparation"] != data["basis"]:
+        parts.append('<h3>Preparation</h3><p>' + e(data["preparation"]) + '</p>')
+    if data["tasks"]:
+        parts.append('<ul>' + ''.join('<li>' + e(task) + '</li>' for task in data["tasks"]) + '</ul>')
+    parts.append('<h3>Human involvement</h3><p>' + e(data["human"]) + '</p><h3>Legal sources</h3><ul>')
+    for source in data["sources"]:
+        parts.append('<li><a rel="noopener noreferrer" href="' + e(source["url"]) + '">' + e(source["title"]) + '</a></li>')
+    parts.append('</ul>')
+    if local := data.get("examination"):
+        part = local["route"]
+        parts.append('<h3>Expert examination</h3>')
+        if part.get("scope"):
+            parts.append('<p>' + e(part["scope"]) + '</p>')
+        contents = part.get("report_contents") or {}
+        if contents.get("items_en"):
+            parts.append('<ul>' + ''.join('<li>' + e(item) + '</li>' for item in contents["items_en"]) + '</ul>')
+        if contents.get("source"):
+            parts.append('<p><a rel="noopener noreferrer" href="' + e(contents["source"]) + '">'
+                         + e(contents.get("basis") or "Report requirements") + '</a></p>')
+        if local.get("open_questions"):
+            parts.append('<details><summary>Points to confirm for this case</summary><ul>'
+                         + ''.join('<li>' + e(item) + '</li>' for item in local["open_questions"]) + '</ul></details>')
+    if local := data.get("local_summary"):
+        direction = "rtl" if local["language"] in ("ar", "fa", "ur") else "ltr"
+        parts.append('<h3>Local-language summary</h3><p>' + e(local["notice"]) + '</p><p lang="'
+                     + e(local["language"]) + '" dir="' + direction + '">' + e(local["text"]) + '</p>')
+    if data.get("safeguards"):
+        parts.append('<h3>Collection safeguards</h3><p>Possible measures to discuss and document; record which ones the collection used.</p><div class="assessment-grid">')
+        for method in data["safeguards"]:
+            parts.append('<article class="assessment-item"><h3>' + e(method["name"]) + '</h3><p>' + e(method["helps"])
+                         + '</p><p><strong>Retain: </strong>' + e(method["retain"]) + '</p><p class="assessment-limit"><strong>Strengthen: </strong>' + e(method["strengthen"]) + '</p></article>')
+        parts.append('</div>')
+    if data.get("practice_references"):
+        parts.append('<h3>Practice references</h3><p>' + e(REFERENCES_NOTE) + '</p><ul>')
+        for item in data["practice_references"]:
+            parts.append('<li><a rel="noopener noreferrer" href="' + e(item["url"]) + '">' + e(item["title"]) + '</a>. ' + e(item["note"]) + '</li>')
+        parts.append('</ul>')
+    return ''.join(parts) + '</section>'
+
+
+def pdf(lay, data):
+    if not data:
+        return
+    lay.section(TITLE, data["name"] + " · " + PROCEDURES[data["procedure"]])
+    lay.callout(data["notice"])
+    if review := data.get("package_review"):
+        lay.heading("What this copy needs next")
+        lay.text(review["basis"])
+        if not review["supporting_files_included"]:
+            lay.text("Get the original signed ZIP before verification. This standalone report does not contain the supporting proof files.", style="B")
+        lay.grid(["Check", "This copy", "Next step"],
+                 [(item["title"], item["finding"], item["action"]) for item in review["items"]], (18, 30, 52))
+    lay.text(data["scope"])
+    lay.text("Research date: " + data["research_date"] + " · " + data["status"].replace('_', ' ') + " · Catalog " + data["catalog_version"])
+    lay.heading("Legal basis")
+    lay.text(data["law"], style="B")
+    lay.text(data["basis"])
+    if data["preparation"] != data["basis"]:
+        lay.heading("Preparation")
+        lay.text(data["preparation"])
+    lay.bullets(data["tasks"])
+    lay.heading("Human involvement")
+    lay.text(data["human"])
+    lay.heading("Legal sources")
+    for source in data["sources"]:
+        lay.text(source["title"])
+        lay.text(source["url"], size=7.5)
+    if local := data.get("examination"):
+        part = local["route"]
+        lay.heading("Expert examination")
+        if part.get("scope"):
+            lay.text(part["scope"])
+        contents = part.get("report_contents") or {}
+        lay.bullets(contents.get("items_en") or [])
+        if contents.get("source"):
+            lay.text(contents.get("basis") or "Report requirements")
+            lay.text(contents["source"], size=7.5)
+        if local.get("open_questions"):
+            lay.heading("Points to confirm for this case")
+            lay.bullets(local["open_questions"])
+    if local := data.get("local_summary"):
+        lay.heading("Local-language summary")
+        lay.text(local["notice"])
+        glyphs = set().union(*(font.cmap for font in lay.pdf.fonts.values() if hasattr(font, "cmap")))
+        if any(ord(char) not in glyphs for char in local["text"]
+               if not char.isspace() and unicodedata.category(char) != "Cf"):
+            from .pdf_report import MissingFont
+            raise MissingFont("The local-language summary needs additional PDF fonts. Install a font for this language or disable the local summary.")
+        lay.text(local["text"], align="R" if local["language"] in ("ar", "fa", "ur") else "L")
+    if data.get("safeguards"):
+        lay.heading("Collection safeguards")
+        lay.text("Possible measures to discuss and document; record which ones the collection used.")
+        for method in data["safeguards"]:
+            lay.heading(method["name"])
+            lay.text(method["helps"])
+            lay.text("Retain: " + method["retain"])
+            lay.text("Strengthen: " + method["strengthen"])
+    if data.get("practice_references"):
+        lay.heading("Practice references")
+        lay.text(REFERENCES_NOTE)
+        for item in data["practice_references"]:
+            lay.text(item["title"])
+            lay.text(item["note"])
+            lay.text(item["url"], size=7.5)

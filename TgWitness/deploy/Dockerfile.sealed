@@ -1,0 +1,18 @@
+FROM cgr.dev/chainguard/wolfi-base@sha256:24f549a7fcace88e69b9557941168c74645688ecc4acf7fb6d734a6b74e9019d
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PYTHONUTF8=1 PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PATH="/opt/venv/bin:$PATH"
+COPY deploy/containers /usr/share/tgwitness-build/containers
+RUN sh /usr/share/tgwitness-build/containers/install-packages.sh runtime \
+    && python3.12 -m venv /opt/venv
+WORKDIR /app
+COPY pyproject.toml README.md LICENSE NOTICE ./
+COPY deploy/build.lock deploy/requirements.lock ./
+COPY tgwitness ./tgwitness
+COPY tgwitness_capture ./tgwitness_capture
+RUN pip install --no-cache-dir --require-hashes -r build.lock \
+    && pip install --no-cache-dir --require-hashes --no-build-isolation -r requirements.lock \
+    && pip install --no-cache-dir --no-deps --no-build-isolation . \
+    && python -m pip check && python -m pip uninstall --yes pip
+USER 10001:10001
+EXPOSE 8787
+CMD ["python", "-m", "tgwitness.sealed", "--config", "/config/session.json", "--data", "/data", "--out", "/output"]

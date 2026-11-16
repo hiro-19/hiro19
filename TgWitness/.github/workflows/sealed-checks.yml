@@ -1,0 +1,113 @@
+name: Sealed image build and release pins
+on:
+  push:
+    paths:
+      - 'tgwitness_capture/**'
+      - 'addons/capture/**'
+      - 'tgwitness/sealed*'
+      - 'tgwitness/security.py'
+      - 'tgwitness/static/sealed*'
+      - 'tgwitness/static/cloud-capture*'
+      - 'tgwitness/static/capture.html'
+      - 'website/sealed*'
+      - 'scripts/sealed_runner.py'
+      - 'deploy/Dockerfile.sealed'
+      - 'deploy/media-worker/**'
+      - 'deploy/containers/**'
+      - '.dockerignore'
+      - 'README.md'
+      - 'LICENSE'
+      - 'NOTICE'
+      - 'deploy/*.lock'
+      - 'deploy/constraints*.txt'
+      - 'pyproject.toml'
+      - 'tools/lock_requirements.py'
+      - 'tools/sealed_release.py'
+      - 'tgwitness/account_acquisition.py'
+      - 'tgwitness/account_attachment_cache.py'
+      - 'tgwitness/account_finalization.py'
+      - 'tgwitness/telegram_export.py'
+      - 'tgwitness/file_hashes.py'
+      - 'tgwitness/export_preflight.py'
+      - 'tgwitness/account_export*'
+      - 'tgwitness/collector.py'
+      - 'tgwitness/history.py'
+      - 'tgwitness/monitoring.py'
+      - 'tgwitness/verify.py'
+      - 'tgwitness/evidence.py'
+      - 'tgwitness/store.py'
+      - 'tgwitness/report*'
+      - 'tgwitness/viewer.py'
+      - 'tgwitness/chat_export.py'
+      - '.github/workflows/sealed*'
+  pull_request:
+    paths:
+      - 'tgwitness_capture/**'
+      - 'addons/capture/**'
+      - 'tgwitness/sealed*'
+      - 'tgwitness/security.py'
+      - 'tgwitness/static/sealed*'
+      - 'tgwitness/static/cloud-capture*'
+      - 'tgwitness/static/capture.html'
+      - 'website/sealed*'
+      - 'scripts/sealed_runner.py'
+      - 'deploy/Dockerfile.sealed'
+      - 'deploy/media-worker/**'
+      - 'deploy/containers/**'
+      - '.dockerignore'
+      - 'README.md'
+      - 'LICENSE'
+      - 'NOTICE'
+      - 'deploy/*.lock'
+      - 'deploy/constraints*.txt'
+      - 'pyproject.toml'
+      - 'tools/lock_requirements.py'
+      - 'tools/sealed_release.py'
+      - 'tgwitness/account_acquisition.py'
+      - 'tgwitness/account_attachment_cache.py'
+      - 'tgwitness/account_finalization.py'
+      - 'tgwitness/telegram_export.py'
+      - 'tgwitness/file_hashes.py'
+      - 'tgwitness/export_preflight.py'
+      - 'tgwitness/account_export*'
+      - 'tgwitness/collector.py'
+      - 'tgwitness/history.py'
+      - 'tgwitness/monitoring.py'
+      - 'tgwitness/verify.py'
+      - 'tgwitness/evidence.py'
+      - 'tgwitness/store.py'
+      - 'tgwitness/report*'
+      - 'tgwitness/viewer.py'
+      - 'tgwitness/chat_export.py'
+      - '.github/workflows/sealed*'
+  workflow_dispatch:
+  workflow_call:
+permissions:
+  contents: read
+concurrency:
+  group: sealed-checks-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'release' }}
+jobs:
+  synthetic-and-container:
+    name: Check sealed release pins and build its image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Check the caller, workflow and pinned collector revision
+        if: github.event_name == 'release'
+        run: python3 -I tools/sealed_release.py --git-history
+      - name: Check dependency inputs and standalone verifier source agreement
+        run: |
+          python3 -I tools/lock_requirements.py --check
+          python3 -I -S tools/build_standalone_verifier.py --check
+      - name: Build the sealed collector image
+        run: docker build -f deploy/Dockerfile.sealed -t tgwitness-sealed:ci .
+      - name: Import the installed sealed collector without networking
+        run: >-
+          docker run --rm --network none --read-only --cap-drop=ALL
+          --security-opt=no-new-privileges --tmpfs /tmp:size=128m,mode=1777
+          tgwitness-sealed:ci python -I -c "import tgwitness.sealed, tgwitness.verify"

@@ -1,0 +1,330 @@
+import json
+import sqlite3
+import unicodedata
+
+from .people import PeopleIndex, TABLES as PEOPLE_TABLES
+
+TEXT_KINDS = ("message.new", "message.snapshot", "message.edited", "message.recovered")
+GONE_KINDS = ("message.deleted", "message.missing_on_recheck")
+CHAT_KINDS = TEXT_KINDS + GONE_KINDS + ("media.saved",)
+MEDIA_KINDS = ("media.saved", "actor.avatar_saved")
+STORED_MEDIA_KINDS = MEDIA_KINDS + ("secret_chat.file",)
+NUL_PAYLOAD = "instr(payload,'\\u0000')>0"
+READ_GROUPS = {
+    "state": ("message_state_index", "chat_state_index", "known_chat_index"),
+    "counts": ("event_kind_counts", "chat_event_kind_counts"),
+    "search": ("event_text_search",),
+    "payload_search": ("event_payload_search",),
+    "people_v1": PEOPLE_TABLES,
+    "media_identity": ("media_identity_index",),
+}
+
+
+def attachment_key(info):
+    if not isinstance(info, dict) or info.get("kind") not in ("document", "photo") or type(info.get("id")) is not int \
+            or not isinstance(info.get("variant"), str):
+        return None
+    return info["kind"] + ":" + str(info["id"]) + ":" + info["variant"]
+
+
+def raw_attachment(media):
+    if not isinstance(media, dict):
+        return None
+    if media.get("_") == "MessageMediaWebPage":
+        page = media.get("webpage") if isinstance(media.get("webpage"), dict) else {}
+        photo, document = page.get("photo"), page.get("document")
+        item = photo if isinstance(photo, dict) and photo.get("_") == "Photo" else document
+    elif media.get("_") in ("MessageMediaPhoto", "MessageMediaDocument"):
+        item = media.get("document") or media.get("photo")
+    else:
+        return None
+    if not isinstance(item, dict) or type(item.get("id")) is not int:
+        return None
+    if item.get("_") == "Document":
+        return {"kind": "document", "id": item["id"], "variant": "original"}
+    sizes = []
+    for size in item.get("sizes") if item.get("_") == "Photo" and isinstance(item.get("sizes"), list) else []:
+        if isinstance(size, dict) and size.get("_") in ("PhotoSize", "PhotoSizeProgressive"):
+            counts = size.get("sizes") if isinstance(size.get("sizes"), list) and size["sizes"] else [size.get("size", 0)]
+            if all(type(count) is int for count in counts):
+                sizes.append((max(counts), size))
+    if not sizes:
+        return None
+    return {"kind": "photo", "id": item["id"], "variant": max(sizes, key=lambda pair: pair[0])[1].get("type")}
+
+
+def search_text(value):
+    value = "" if value is None else value if isinstance(value, str) else str(value)
+    return unicodedata.normalize("NFC", value.casefold())
+
+
+def nul_text(payload):
+    value = json.loads(payload).get("text")
+    return value if isinstance(value, str) else ""
+
+
+class JournalIndex:
+    def __init__(self, db):
+        self.db = db
+        self.repair_missing_tables()
+        for sql in (
+            "CREATE TABLE IF NOT EXISTS journal_read_index (name TEXT PRIMARY KEY, seq INTEGER NOT NULL)",
+            "CREATE TABLE IF NOT EXISTS message_state_index ("
+            "chat_id INTEGER NOT NULL, message_id INTEGER NOT NULL, text_seq INTEGER,"
+            "has_message INTEGER NOT NULL, edited INTEGER NOT NULL, deleted INTEGER NOT NULL,"
+            "missing INTEGER NOT NULL, PRIMARY KEY(chat_id,message_id)) WITHOUT ROWID",
+            "CREATE INDEX IF NOT EXISTS message_alive ON message_state_index(chat_id,message_id DESC) "
+            "WHERE text_seq IS NOT NULL AND deleted=0 AND missing=0",
+            "CREATE INDEX IF NOT EXISTS message_text ON message_state_index(chat_id,message_id DESC) "
+            "WHERE text_seq IS NOT NULL",
+            "CREATE INDEX IF NOT EXISTS message_account ON message_state_index(message_id,chat_id) "
+            "WHERE text_seq IS NOT NULL AND chat_id>-1000000000000",
+            "CREATE TABLE IF NOT EXISTS chat_state_index (chat_id INTEGER PRIMARY KEY,"
+            "messages INTEGER NOT NULL DEFAULT 0, edited INTEGER NOT NULL DEFAULT 0,"
+            "deleted INTEGER NOT NULL DEFAULT 0, missing INTEGER NOT NULL DEFAULT 0,"
+            "last_observed_at TEXT, text_id INTEGER, text_seq INTEGER,"
+            "saved INTEGER NOT NULL DEFAULT 0, deleted_saved INTEGER NOT NULL DEFAULT 0)",
+            "CREATE TABLE IF NOT EXISTS known_chat_index (chat_id INTEGER PRIMARY KEY)",
+            "CREATE TABLE IF NOT EXISTS event_kind_counts (kind TEXT PRIMARY KEY, total INTEGER NOT NULL)",
+            "CREATE TABLE IF NOT EXISTS chat_event_kind_counts (chat_id INTEGER NOT NULL,kind TEXT NOT NULL,"
+            "total INTEGER NOT NULL,PRIMARY KEY(chat_id,kind)) WITHOUT ROWID",
+            "CREATE INDEX IF NOT EXISTS event_sender ON events("
+            "json_extract(payload,'$.sender_id'),chat_id,message_id,kind)",
+            "CREATE INDEX IF NOT EXISTS event_media ON events("
+            "json_extract(payload,'$.media_sha256'),chat_id,kind)",
+            "CREATE INDEX IF NOT EXISTS event_text_nul ON events(seq) WHERE " + NUL_PAYLOAD,
+            "CREATE TABLE IF NOT EXISTS media_identity_index (identity TEXT PRIMARY KEY, sha256 TEXT NOT NULL,"
+            "bytes INTEGER NOT NULL, seq INTEGER NOT NULL) WITHOUT ROWID",
+        ):
+            db.execute(sql)
+        self.search_enabled = self.create_search()
+        self.payload_search_enabled = self.create_search("event_payload_search", "document")
+        self.people = PeopleIndex(db)
+        people_seq = self.position("people_v1")
+        state_seq = self.position("state")
+        search_seq = self.position("search") if self.search_enabled else state_seq
+        payload_seq = self.position("payload_search") if self.payload_search_enabled else state_seq
+        for row in db.execute("SELECT * FROM events WHERE seq>? ORDER BY seq",
+                              (min(state_seq, search_seq, payload_seq, people_seq),)):
+            if row["seq"] > state_seq or row["seq"] > people_seq or self.search_enabled and row["seq"] > search_seq:
+                event = dict(row)
+                event["payload"] = json.loads(row["payload"])
+            if row["seq"] > state_seq:
+                self.state(event)
+            if row["seq"] > people_seq:
+                self.people.append(event)
+                self.advance("people_v1", event["seq"])
+            if self.search_enabled and row["seq"] > search_seq:
+                self.search(event)
+            if self.payload_search_enabled and row["seq"] > payload_seq:
+                self.search_payload(row["seq"], row["payload"])
+        self.initialize_counts()
+        for row in db.execute("SELECT seq,kind,payload FROM events WHERE kind='media.saved' AND seq>? ORDER BY seq",
+                              (self.position("media_identity"),)):
+            self.media_identity({"seq": row["seq"], "kind": row["kind"], "payload": json.loads(row["payload"])})
+        if not self.position("missing_recovery"):
+            db.execute("UPDATE message_state_index SET missing=0 WHERE missing=1 AND text_seq > "
+                       "(SELECT max(seq) FROM events WHERE events.chat_id=message_state_index.chat_id "
+                       "AND events.message_id=message_state_index.message_id AND kind='message.missing_on_recheck')")
+            db.execute("UPDATE chat_state_index SET missing=(SELECT coalesce(sum(missing),0) "
+                       "FROM message_state_index WHERE message_state_index.chat_id=chat_state_index.chat_id)")
+            self.advance("missing_recovery", 1)
+
+    def repair_missing_tables(self):
+        existing = {row[0] for row in self.db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        has_positions = "journal_read_index" in existing
+        positions = {row[0] for row in self.db.execute("SELECT name FROM journal_read_index")} if has_positions else set()
+        state_columns = {row[1] for row in self.db.execute("PRAGMA table_info(chat_state_index)")}             if "chat_state_index" in existing else set()
+        for name, tables in READ_GROUPS.items():
+            current = name != "state" or "chat_state_index" not in existing or "deleted_saved" in state_columns
+            if name in positions and all(table in existing for table in tables) and current:
+                continue
+            for table in tables:
+                self.db.execute("DROP TABLE IF EXISTS " + table)
+            if has_positions:
+                self.db.execute("DELETE FROM journal_read_index WHERE name=?", (name,))
+
+    def create_search(self, table="event_text_search", column="text"):
+        try:
+            self.db.execute("CREATE VIRTUAL TABLE IF NOT EXISTS " + table + " USING "
+                            "fts5(" + column + ",content='',tokenize='trigram case_sensitive 1')")
+        except sqlite3.OperationalError as exc:
+            if "no such module" not in str(exc) and "tokenizer" not in str(exc):
+                raise
+            return False
+        return True
+
+    def position(self, name):
+        row = self.db.execute("SELECT seq FROM journal_read_index WHERE name=?", (name,)).fetchone()
+        return row[0] if row else 0
+
+    def advance(self, name, seq):
+        self.db.execute("INSERT INTO journal_read_index VALUES (?,?) "
+                        "ON CONFLICT(name) DO UPDATE SET seq=excluded.seq", (name, seq))
+
+    def append(self, event):
+        self.state(event)
+        self.people.append(event)
+        self.advance("people_v1", event["seq"])
+        if self.search_enabled:
+            self.search(event)
+        if self.payload_search_enabled:
+            payload = self.db.execute("SELECT payload FROM events WHERE seq=?", (event["seq"],)).fetchone()[0]
+            self.search_payload(event["seq"], payload)
+        self.count(event["chat_id"], event["kind"], 1)
+        self.advance("counts", event["seq"])
+        self.media_identity(event)
+
+    def media_identity(self, event):
+        if event["kind"] != "media.saved":
+            return
+        payload = event["payload"] if isinstance(event["payload"], dict) else {}
+        digest, size = payload.get("media_sha256"), payload.get("size")
+        info = payload.get("attachment")
+        if not isinstance(info, dict) and type(payload.get("message_event")) is int:
+            row = self.db.execute("SELECT CASE WHEN json_type(payload,'$.raw.media')='object' "
+                                  "THEN json_extract(payload,'$.raw.media') END FROM events WHERE seq=?",
+                                  (payload["message_event"],)).fetchone()
+            info = raw_attachment(json.loads(row[0]) if row and isinstance(row[0], str) else None)
+        key = attachment_key(info)
+        if key and isinstance(digest, str) and len(digest) == 64 and set(digest) <= set("0123456789abcdef") \
+                and type(size) is int:
+            self.db.execute("INSERT OR IGNORE INTO media_identity_index VALUES (?,?,?,?)", (key, digest, size, event["seq"]))
+        self.advance("media_identity", event["seq"])
+
+    def count(self, chat, kind, total):
+        self.db.execute("INSERT INTO event_kind_counts VALUES (?,?) "
+                        "ON CONFLICT(kind) DO UPDATE SET total=total+excluded.total", (kind, total))
+        if chat is not None:
+            self.db.execute("INSERT INTO chat_event_kind_counts VALUES (?,?,?) "
+                            "ON CONFLICT(chat_id,kind) DO UPDATE SET total=total+excluded.total", (chat, kind, total))
+
+    def initialize_counts(self):
+        indexed = self.position("counts")
+        tail = self.db.execute("SELECT coalesce(max(seq),0) FROM events").fetchone()[0]
+        if indexed < tail:
+            for row in self.db.execute("SELECT chat_id,kind,count(*) FROM events WHERE seq>? "
+                                       "GROUP BY chat_id,kind", (indexed,)):
+                self.count(*row)
+            self.advance("counts", tail)
+
+    def state(self, event):
+        db = self.db
+        chat, message, kind = event["chat_id"], event["message_id"], event["kind"]
+        promotes_text = kind in TEXT_KINDS
+        if chat is not None and message is not None:
+            db.execute("INSERT OR IGNORE INTO known_chat_index VALUES (?)", (chat,))
+        if chat is not None and kind in CHAT_KINDS:
+            db.execute("INSERT OR IGNORE INTO chat_state_index(chat_id) VALUES (?)", (chat,))
+            if message is not None:
+                old = db.execute("SELECT * FROM message_state_index WHERE chat_id=? AND message_id=?",
+                                 (chat, message)).fetchone()
+                started = (event["payload"].get("acquisition") or {}).get("request_started_seq")
+                if (kind == "message.snapshot" and type(started) is int and started >= 0
+                        and old and old["text_seq"] is not None and old["text_seq"] > started):
+                    promotes_text = False
+                values = (int(kind != "media.saved"), int(kind == "message.edited"),
+                          int(kind == "message.deleted"), int(kind == "message.missing_on_recheck"))
+                previous = tuple(old[k] for k in ("has_message", "edited", "deleted", "missing")) if old else (0,)*4
+                updated = tuple(max(a, b) for a, b in zip(previous, values))
+                if promotes_text:
+                    updated = (*updated[:3], 0)
+                text_seq = event["seq"] if promotes_text else old["text_seq"] if old else None
+                had_text = bool(old and old["text_seq"] is not None)
+                saved_before = (int(had_text), int(had_text and bool(previous[2])))
+                saved_after = (int(text_seq is not None), int(text_seq is not None and bool(updated[2])))
+                db.execute("INSERT INTO message_state_index VALUES (?,?,?,?,?,?,?) "
+                           "ON CONFLICT(chat_id,message_id) DO UPDATE SET text_seq=excluded.text_seq,"
+                           "has_message=excluded.has_message,edited=excluded.edited,"
+                           "deleted=excluded.deleted,missing=excluded.missing",
+                           (chat, message, text_seq, *updated))
+                db.execute("UPDATE chat_state_index SET messages=messages+?,edited=edited+?,"
+                           "deleted=deleted+?,missing=missing+?,saved=saved+?,deleted_saved=deleted_saved+?,"
+                           "last_observed_at=max(coalesce(last_observed_at,''),?) WHERE chat_id=?",
+                           (*[b-a for a, b in zip(previous, updated)], *[b-a for a, b in zip(saved_before, saved_after)],
+                            event["observed_at"], chat))
+            if promotes_text:
+                db.execute("UPDATE chat_state_index SET text_id=?,text_seq=? WHERE chat_id=? "
+                           "AND (text_seq IS NULL OR text_id IS NULL OR ?>=text_id)",
+                           (message, event["seq"], chat, message))
+        self.advance("state", event["seq"])
+
+    def search(self, event):
+        value = event["payload"].get("text")
+        if value is not None and not isinstance(value, str):
+            value = self.db.execute("SELECT json_extract(payload,'$.text') FROM events WHERE seq=?",
+                                    (event["seq"],)).fetchone()[0]
+        if value is not None:
+            self.db.execute("INSERT INTO event_text_search(rowid,text) VALUES (?,?)",
+                            (event["seq"], search_text(value)))
+        self.advance("search", event["seq"])
+
+    def search_payload(self, seq, payload):
+        self.db.execute("INSERT INTO event_payload_search(rowid,document) VALUES (?,?)",
+                        (seq, search_text(payload)))
+        self.advance("payload_search", seq)
+
+    def latest_message_times(self):
+        return dict(self.db.execute(
+            "SELECT c.chat_id,coalesce(json_extract(e.payload,'$.sent_at'),e.source_at) FROM chat_state_index c "
+            "JOIN events e ON e.seq=c.text_seq WHERE c.last_observed_at IS NOT NULL").fetchall())
+
+    def candidate(self, query, *, text_only=True):
+        value = search_text(query)
+        enabled = self.search_enabled if text_only else self.payload_search_enabled
+        if not enabled or len(value) < 3 or "\0" in value:
+            return None
+        return '"' + value.replace('"', '""') + '"'
+
+
+def media_fields(payload):
+    capture = payload.get("media_capture") or {}
+    raw = payload.get("raw") or {}
+    media = raw.get("media") or {}
+    document = media.get("document") or (media.get("webpage") or {}).get("document") or {}
+    size = capture.get("estimated_bytes", document.get("size"))
+    size = size if type(size) is int and size >= 0 else None
+    ttl = raw.get("ttl_period") or media.get("ttl_seconds")
+    priority = capture.get("priority")
+    if type(priority) is not int:
+        priority = 0 if isinstance(ttl, (int, float)) and ttl > 0 else 1 if size is not None and size <= 2*1024**2 else 10
+    return priority, size
+
+
+def media_transfer_key(payload):
+    capture = payload.get("media_capture") or {}
+    action = capture.get("action", "download")
+    identity = attachment_key(raw_attachment((payload.get("raw") or {}).get("media")))
+    size = media_fields(payload)[1]
+    if identity is None or size is None or action not in ("download", "hashes_only"):
+        return None
+    return json.dumps([action, identity, size], separators=(",", ":"))
+
+
+def migrate_media(db):
+    columns = {r[1] for r in db.execute("PRAGMA table_info(media_jobs)")}
+    added = "priority" not in columns
+    if added:
+        db.execute("ALTER TABLE media_jobs ADD COLUMN priority INTEGER NOT NULL DEFAULT 10")
+    if "estimated_bytes" not in columns:
+        db.execute("ALTER TABLE media_jobs ADD COLUMN estimated_bytes INTEGER")
+    if "expedite" not in columns:
+        db.execute("ALTER TABLE media_jobs ADD COLUMN expedite INTEGER NOT NULL DEFAULT 0")
+    if "transfer_key" not in columns:
+        db.execute("ALTER TABLE media_jobs ADD COLUMN transfer_key TEXT")
+        for row in db.execute("SELECT j.message_event,e.payload FROM media_jobs j JOIN events e ON e.seq=j.message_event "
+                              "WHERE j.state IN ('queued','retry','running')"):
+            db.execute("UPDATE media_jobs SET transfer_key=? WHERE message_event=?",
+                       (media_transfer_key(json.loads(row["payload"])), row["message_event"]))
+    if added:
+        for row in db.execute("SELECT j.message_event,e.payload FROM media_jobs j "
+                              "JOIN events e ON e.seq=j.message_event"):
+            priority, size = media_fields(json.loads(row["payload"]))
+            db.execute("UPDATE media_jobs SET priority=?,estimated_bytes=? WHERE message_event=?",
+                       (priority, size, row["message_event"]))
+    db.execute("CREATE INDEX IF NOT EXISTS media_lane ON "
+               "media_jobs(account_id,priority,message_event,next_attempt) WHERE state IN ('queued','retry')")
+    db.execute("CREATE INDEX IF NOT EXISTS media_expedited ON "
+               "media_jobs(account_id,expedite DESC,priority,message_event) WHERE state IN ('queued','retry')")
+    db.execute("CREATE INDEX IF NOT EXISTS media_active_transfer ON "
+               "media_jobs(account_id,transfer_key) WHERE state='running'")

@@ -1,0 +1,1013 @@
+import hashlib
+import json
+import logging
+import sqlite3
+import threading
+import time
+import weakref
+from contextlib import contextmanager
+from contextvars import ContextVar
+from datetime import datetime, timezone
+from pathlib import Path
+
+from . import keyboard
+from . import message_content
+from . import continuity
+from .fulltext import FullText
+from .journal_index import CHAT_KINDS, MEDIA_KINDS, STORED_MEDIA_KINDS, TEXT_KINDS, JournalIndex, migrate_media, nul_text, search_text
+from .journal_index import GONE_KINDS as GONE_KINDS
+from .journal_index import NUL_PAYLOAD
+from .journal_index import media_transfer_key
+from .people import observed_names
+
+LOG = logging.getLogger("tgwitness.store")
+
+ZERO = "0" * 64
+ADMIN_RECORDS = "kind NOT GLOB 'access.*' AND kind NOT GLOB 'profile.*'"
+EVENT_FIELDS = ("seq", "observed_at", "source_at", "kind", "chat_id", "message_id",
+                "actor_id", "payload", "previous_hash")
+JOURNAL_KIND_GROUPS = {"membership": ("membership.",), "media": ("media.",), "actions": ("interaction.",),
+    "messages": ("message.new", "message.snapshot", "message.recovered"),
+    "coverage": ("coverage.", "connection.", "collector.", "process.", "observation.", "snapshot.", "target.",
+                 "capture.", "monitoring.", "source.", "scope.", "telegram.", "clock.", "media.failed",
+                 "media.retry", "media.recovered", "deletion.unscoped", "session.",)}
+RECEPTION = ContextVar("journal_reception", default=None)
+CHAT_SETTINGS = ("recheck_last", "recheck_floor", "recheck_walked", "recheck_cursor")
+
+def utcnow():
+    return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+
+
+def reception_fields(reception):
+    received = datetime.fromtimestamp(reception["wall_ns"] / 1e9, timezone.utc)
+    return {"received_at": received.isoformat(timespec="milliseconds"),
+            "processing_delay_ms": max(0, (time.monotonic_ns() - reception["monotonic_ns"]) // 1_000_000)}
+
+
+def chat_rows(name, values):
+    if not isinstance(values, dict):
+        return []
+    return [(name, int(key), json.dumps(value)) for key, value in values.items()
+            if str(key).lstrip("-").isdigit()]
+
+
+class ReadConnection:
+    __slots__ = ("db", "__weakref__")
+
+    def __init__(self, path):
+        db = sqlite3.connect(path, check_same_thread=False)
+        weakref.finalize(self, db.close)
+        db.create_function("search_text", 1, search_text, deterministic=True)
+        db.create_function("nul_text", 1, nul_text, deterministic=True)
+        db.row_factory = sqlite3.Row
+        db.execute("PRAGMA busy_timeout=5000")
+        db.execute("PRAGMA query_only=ON")
+        self.db = db
+
+
+def canonical(value):
+    return json.dumps(value, ensure_ascii=False, sort_keys=True,
+                      separators=(",", ":"), allow_nan=False).encode("utf-8")
+
+
+def event_hash(event):
+    return hashlib.sha256(canonical({k: event[k] for k in EVENT_FIELDS})).hexdigest()
+
+
+class Store:
+    def __init__(self, root: Path):
+        self.root = root
+        self.lock = threading.RLock()
+        self.db = sqlite3.connect(root / "journal.sqlite3", check_same_thread=False)
+        self.db.create_function("search_text", 1, search_text, deterministic=True)
+        self.db.create_function("nul_text", 1, nul_text, deterministic=True)
+        self.db.row_factory = sqlite3.Row
+        self.db.executescript("""
+            PRAGMA journal_mode=WAL;
+            PRAGMA synchronous=FULL;
+            PRAGMA busy_timeout=5000;
+            CREATE TABLE IF NOT EXISTS events (
+              seq INTEGER PRIMARY KEY, observed_at TEXT NOT NULL, source_at TEXT,
+              kind TEXT NOT NULL, chat_id INTEGER, message_id INTEGER, actor_id INTEGER,
+              payload TEXT NOT NULL, previous_hash TEXT NOT NULL, hash TEXT NOT NULL,
+              signature TEXT NOT NULL);
+            CREATE INDEX IF NOT EXISTS event_chat ON events(chat_id, seq);
+            CREATE INDEX IF NOT EXISTS event_message ON events(chat_id, message_id, seq);
+            CREATE INDEX IF NOT EXISTS event_kind ON events(kind, seq);
+            CREATE INDEX IF NOT EXISTS event_observed ON events(observed_at, seq);
+            CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS chat_settings (
+              name TEXT NOT NULL, chat_id INTEGER NOT NULL, value TEXT NOT NULL,
+              PRIMARY KEY (name, chat_id)) WITHOUT ROWID;
+            CREATE TABLE IF NOT EXISTS targets (
+              chat_id INTEGER PRIMARY KEY, title TEXT NOT NULL, enabled INTEGER NOT NULL,
+              kind TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS media_jobs (
+              message_event INTEGER PRIMARY KEY REFERENCES events(seq),
+              account_id INTEGER NOT NULL, chat_id INTEGER NOT NULL, message_id INTEGER NOT NULL,
+              descriptor BLOB NOT NULL, descriptor_hash TEXT NOT NULL, max_bytes INTEGER NOT NULL,
+              state TEXT NOT NULL DEFAULT 'queued', attempts INTEGER NOT NULL DEFAULT 0,
+              next_attempt REAL NOT NULL DEFAULT 0, last_error TEXT);
+            CREATE INDEX IF NOT EXISTS media_ready ON media_jobs(state, next_attempt, message_event);
+            CREATE TRIGGER IF NOT EXISTS immutable_update BEFORE UPDATE ON events
+              BEGIN SELECT RAISE(ABORT, 'Journal is append-only'); END;
+            CREATE TRIGGER IF NOT EXISTS immutable_delete BEFORE DELETE ON events
+              BEGIN SELECT RAISE(ABORT, 'Journal is append-only'); END;
+        """)
+
+        columns = {r[1] for r in self.db.execute("PRAGMA table_info(targets)")}
+        if "origin" not in columns:
+            self.db.execute("ALTER TABLE targets ADD COLUMN origin TEXT NOT NULL DEFAULT 'manual'")
+        if "priority" not in columns:
+            self.db.execute("ALTER TABLE targets ADD COLUMN priority INTEGER NOT NULL DEFAULT 1")
+
+
+        self.db.execute("CREATE INDEX IF NOT EXISTS event_message_id ON events(message_id)")
+        self.db.commit()
+        self.signer = None
+        from .board import initialize as initialize_board
+        initialize_board(self.db)
+        self.targets_revision = 0
+        self.listeners = []
+        self.committed = []
+        self.transaction_depth = 0
+        self.readers = threading.local()
+        self.read_connections = weakref.WeakSet()
+        with self.transaction():
+            continuity.initialize(self.db)
+            migrate_media(self.db)
+            self.migrate_chat_settings()
+            self.read_index = JournalIndex(self.db)
+        self.fulltext = FullText(self)
+
+    def migrate_chat_settings(self):
+        for name in CHAT_SETTINGS:
+            row = self.db.execute("SELECT value FROM settings WHERE key=?", (name,)).fetchone()
+            if row is None:
+                continue
+            self.db.executemany("INSERT OR REPLACE INTO chat_settings VALUES (?,?,?)",
+                                chat_rows(name, json.loads(row[0])))
+            self.db.execute("DELETE FROM settings WHERE key=?", (name,))
+
+    @contextmanager
+    def reading(self):
+        if self.lock._is_owned():
+            yield self.db
+            return
+        reader = getattr(self.readers, "connection", None)
+        if reader is not None and reader.db.in_transaction:
+            yield reader.db
+            return
+        if self.db.in_transaction and self.lock.acquire(blocking=False):
+            try:
+                pending = self.db.in_transaction
+                if pending:
+                    yield self.db
+            finally:
+                self.lock.release()
+            if pending:
+                return
+        if reader is None:
+            reader = self.readers.connection = ReadConnection(self.root / "journal.sqlite3")
+            self.read_connections.add(reader)
+        db = reader.db
+        db.execute("BEGIN")
+        try:
+            yield db
+        finally:
+            db.rollback()
+
+    @contextmanager
+    def transaction(self):
+        with self.lock:
+            if self.transaction_depth and not self.db.in_transaction:
+                raise sqlite3.OperationalError("Journal transaction ended before commit")
+            outer, mark = not self.db.in_transaction, len(self.committed)
+            if outer:
+                self.db.execute("BEGIN IMMEDIATE")
+            else:
+                self.db.execute("SAVEPOINT journal_nested")
+            self.transaction_depth += 1
+            try:
+                yield
+                if not self.db.in_transaction:
+                    raise sqlite3.OperationalError("Journal transaction ended before commit")
+                if outer:
+                    self.db.commit()
+                else:
+                    self.db.execute("RELEASE journal_nested")
+            except BaseException:
+                try:
+                    if outer:
+                        self.db.rollback()
+                    elif self.db.in_transaction:
+                        self.db.execute("ROLLBACK TO journal_nested")
+                        self.db.execute("RELEASE journal_nested")
+                finally:
+                    del self.committed[mark:]
+                raise
+            finally:
+                self.transaction_depth -= 1
+            if outer:
+                events, self.committed = self.committed, []
+                for event in events:
+                    for listen in self.listeners:
+                        try:
+                            listen(event)
+                        except Exception:
+                            LOG.exception("Journal listener %s failed for event #%d",
+                                          getattr(listen, "__qualname__", type(listen).__qualname__), event["seq"])
+
+    def bind(self, vault):
+        identity = self.get_setting("public_key", None)
+        if identity is not None and identity != vault.public_key:
+            raise RuntimeError("Signing key does not match this journal. Restore the original vault.")
+        self.set_setting("public_key", vault.public_key)
+        self.signer = vault
+
+    def append(self, kind, payload, chat_id=None, message_id=None, actor_id=None, source_at=None,
+               media_job=None):
+        payload = json.loads(json.dumps(payload, ensure_ascii=False, allow_nan=False))
+        reception = RECEPTION.get()
+        if reception and isinstance(payload, dict) and "received_at" not in payload:
+            payload.update(reception_fields(reception))
+        with self.transaction():
+            tail = self.db.execute("SELECT seq, hash FROM events ORDER BY seq DESC LIMIT 1").fetchone()
+            event = dict(seq=tail["seq"] + 1 if tail else 1, observed_at=utcnow(),
+                         source_at=source_at, kind=kind, chat_id=chat_id, message_id=message_id,
+                         actor_id=actor_id, payload=payload, previous_hash=tail["hash"] if tail else ZERO)
+            event["hash"] = event_hash(event)
+            event["signature"] = self.signer.sign(bytes.fromhex(event["hash"]))
+            self.db.execute("INSERT INTO events VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                            tuple(canonical(event[k]).decode() if k == "payload" else event[k]
+                                  for k in (*EVENT_FIELDS, "hash", "signature")))
+            continuity.index_event(self.db, event["seq"], event["hash"])
+            self.read_index.append(event)
+            if media_job:
+                self.db.execute(
+                    "INSERT INTO media_jobs(message_event,account_id,chat_id,message_id,"
+                    "descriptor,descriptor_hash,max_bytes,priority,estimated_bytes,transfer_key) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                    (event["seq"], media_job["account_id"], chat_id, message_id,
+                     media_job["descriptor"], hashlib.sha256(media_job["descriptor"]).hexdigest(),
+                     media_job["max_bytes"], media_job.get("priority", 10), media_job.get("estimated_bytes"),
+                     media_transfer_key(payload)))
+            self.committed.append(event)
+            return event
+
+    @staticmethod
+    def decode(row):
+        result = dict(row)
+        result["payload"] = json.loads(result["payload"])
+        return result
+
+    def chat_overview(self):
+        with self.reading() as db:
+            rows = db.execute(
+                "SELECT c.*,e.payload FROM chat_state_index c LEFT JOIN events e ON e.seq=c.text_seq "
+                "WHERE c.last_observed_at IS NOT NULL").fetchall()
+            result = {}
+            for row in rows:
+                payload = json.loads(row["payload"]) if row["payload"] is not None else {}
+                sender = payload.get("sender_observation") or {}
+                result[row["chat_id"]] = {
+                    "messages": row["messages"], "edited": row["edited"], "deleted": row["deleted"],
+                    "missing": row["missing"], "saved": row["saved"], "deleted_saved": row["deleted_saved"],
+                    "deleted_unsaved": row["deleted"] - row["deleted_saved"],
+                    "last_observed_at": row["last_observed_at"],
+                    "last_text": payload.get("text"),
+                    "last_sender": sender.get("display_name"),
+                }
+        return result
+
+    def chat_authors(self, chat_id):
+        text_marks = ",".join("?" * len(TEXT_KINDS))
+        with self.reading() as db:
+            rows = db.execute(
+                "SELECT message_id, kind, json_extract(payload,'$.sender_id') AS sender_id,"
+                " json_extract(payload,'$.sender_observation.display_name') AS name,"
+                " json_extract(payload,'$.sender_observation.username') AS username,"
+                " coalesce(json_extract(payload,'$.sent_at'), source_at) AS sent_at"
+                " FROM events WHERE chat_id=? AND message_id IS NOT NULL AND kind IN (" + text_marks + ")"
+                " ORDER BY seq", (chat_id, *TEXT_KINDS)).fetchall()
+            deleted = {r[0] for r in db.execute(
+                "SELECT DISTINCT message_id FROM events WHERE chat_id=? AND kind='message.deleted'", (chat_id,))}
+            missing = {r[0] for r in db.execute(
+                "SELECT message_id FROM message_state_index WHERE chat_id=? AND missing=1",
+                (chat_id,))} - deleted
+        people, edited, owner = {}, set(), {}
+        for row in rows:
+            if row["kind"] == "message.edited":
+                edited.add(row["message_id"])
+            person = people.setdefault(row["sender_id"], {
+                "id": row["sender_id"], "name": None, "username": None, "message_ids": set(),
+                "first_message_at": None, "last_message_at": None})
+            person["name"] = row["name"] or person["name"]
+            person["username"] = row["username"] or person["username"]
+            person["message_ids"].add(row["message_id"])
+            owner.setdefault(row["message_id"], row["sender_id"])
+            when = row["sent_at"]
+            if when and (person["first_message_at"] is None or when < person["first_message_at"]):
+                person["first_message_at"] = when
+            if when and (person["last_message_at"] is None or when > person["last_message_at"]):
+                person["last_message_at"] = when
+        result = []
+        for person in people.values():
+            ids = person.pop("message_ids")
+            person.update(messages=len(ids), deleted=len(ids & deleted), missing=len(ids & missing),
+                          edited=sum(1 for i in ids & edited if owner.get(i) == person["id"]))
+            result.append(person)
+        result.sort(key=lambda p: (-p["messages"], -p["deleted"], str(p["id"])))
+        return {"authors": result, "deleted_without_author": len(deleted - set(owner))}
+
+    def last_message_id(self, chat_id):
+        with self.reading() as db:
+            row = db.execute("SELECT message_id FROM message_state_index INDEXED BY message_text WHERE chat_id=? "
+                                  "AND text_seq IS NOT NULL ORDER BY message_id DESC LIMIT 1", (chat_id,)).fetchone()
+        return row[0] if row else None
+
+    def saved_message_ids(self, chat_id, message_ids):
+        ids = sorted({m for m in message_ids if isinstance(m, int)})
+        found = set()
+        with self.reading() as db:
+            for start in range(0, len(ids), 500):
+                part = ids[start:start + 500]
+                found.update(row[0] for row in db.execute(
+                    "SELECT message_id FROM message_state_index WHERE chat_id=? AND text_seq IS NOT NULL "
+                    "AND message_id IN (" + ",".join("?" * len(part)) + ")", (chat_id, *part)))
+        return found
+
+    def watchlist_hits(self, lowest, highest):
+        with self.reading() as db:
+            rows = db.execute(
+                "SELECT json_extract(payload,'$.entry_id') AS entry_id,"
+                "json_extract(payload,'$.record') AS record FROM events INDEXED BY event_kind "
+                "WHERE kind='watchlist.hit' AND json_extract(payload,'$.record') BETWEEN ? AND ?",
+                (lowest, highest)).fetchall()
+        return {(row["entry_id"], row["record"]) for row in rows if isinstance(row["entry_id"], str)}
+
+    def message_state(self, chat_id, message_id):
+        with self.reading() as db:
+            row = db.execute(
+                "SELECT e.seq,e.hash,json_extract(e.payload,'$.text') AS text,"
+                "json_extract(e.payload,'$.edited_at') AS edited_at,"
+                "json_extract(e.payload,'$.outgoing') AS outgoing,json_extract(e.payload,'$.sent_at') AS sent_at,"
+                "json_extract(e.payload,'$.raw.ttl_period') AS ttl_period,e.payload,m.deleted,m.missing "
+                "FROM message_state_index m LEFT JOIN events e ON e.seq=m.text_seq "
+                "WHERE m.chat_id=? AND m.message_id=?", (chat_id, message_id)).fetchone()
+        content = {key: row[key] for key in ("seq", "hash", "text", "edited_at", "outgoing", "sent_at", "ttl_period",
+                                             "payload")} if row and row["seq"] is not None else None
+        if content:
+            content["observable"] = message_content.of_payload(json.loads(content.pop("payload")))
+            content["buttons"] = content["observable"]["buttons"]
+        return {"content": content,
+                "deleted": bool(row and row["deleted"]), "missing": bool(row and row["missing"])}
+
+    def alive_message_ids(self, chat_id, below=None, limit=200, *, include_missing=False):
+        where, params = "chat_id=? AND text_seq IS NOT NULL AND deleted=0", [chat_id]
+        if not include_missing:
+            where += " AND missing=0"
+        index = "message_text" if include_missing else "message_alive"
+        if below is not None:
+            where += " AND message_id<?"
+            params.append(below)
+        with self.reading() as db:
+            return [r[0] for r in db.execute(
+                "SELECT message_id FROM message_state_index INDEXED BY " + index + " WHERE " + where +
+                " ORDER BY message_id DESC LIMIT ?", (*params, limit))]
+
+    def _chat_selection(self, chat_id, mode, search, author_id):
+        where, params = "m.chat_id=?", [chat_id]
+        if mode not in {"all", "deleted", "edited", "media", "missing"}:
+            raise ValueError("Unknown message filter.")
+        text_marks = ",".join("?" * len(TEXT_KINDS))
+        related = "e.chat_id=m.chat_id AND e.message_id=m.message_id"
+        if mode == "deleted":
+            where += " AND m.deleted=1"
+        elif mode == "missing":
+            where += " AND m.missing=1 AND m.deleted=0"
+        elif mode == "edited":
+            where += (" AND (m.edited=1 OR EXISTS(SELECT 1 FROM events e WHERE " + related
+                      + " AND e.kind IN (" + text_marks + ") AND json_extract(e.payload,'$.edited_at') IS NOT NULL))")
+            params.extend(TEXT_KINDS)
+        elif mode == "media":
+            where += (" AND EXISTS(SELECT 1 FROM events e WHERE " + related
+                      + " AND ((e.kind IN (" + text_marks + ") AND json_extract(e.payload,'$.has_media')=1)"
+                      + " OR (e.kind='media.saved' AND json_extract(e.payload,'$.media_sha256') IS NOT NULL)))")
+            params.extend(TEXT_KINDS)
+        if author_id is not None:
+            where += (" AND (SELECT coalesce(json_extract(e.payload,'$.sender_id'),"
+                      "json_extract(e.payload,'$.sender_observation.id')) FROM events e WHERE " + related
+                      + " AND e.kind IN (" + text_marks + ") AND coalesce(json_extract(e.payload,'$.sender_id'),"
+                      "json_extract(e.payload,'$.sender_observation.id')) IS NOT NULL ORDER BY e.seq LIMIT 1)=?")
+            params.extend((*TEXT_KINDS, author_id))
+        if search:
+            source, _, selection, values = self._event_selection(
+                chat_id=chat_id, kind=",".join(TEXT_KINDS), search=search, text_only=True)
+            where += " AND m.message_id IN (SELECT message_id FROM " + source + selection + ")"
+            params.extend(values)
+        return where, params
+
+    def chat_messages(self, chat_id, before_id=None, limit=60, *, after_id=None,
+                      mode="all", search=None, author_id=None):
+        if before_id is not None and after_id is not None:
+            raise ValueError("Choose one message cursor.")
+        if not 1 <= limit <= 200:
+            raise ValueError("Limit must be 1–200.")
+        marks = ",".join("?" * len(CHAT_KINDS))
+        scope, scope_params = self._chat_selection(chat_id, mode, search, author_id)
+        where, params = scope, list(scope_params)
+        if before_id is not None:
+            where += " AND m.message_id<?"
+            params.append(before_id)
+        if after_id is not None:
+            where += " AND m.message_id>?"
+            params.append(after_id)
+        direction = "ASC" if after_id is not None else "DESC"
+        with self.reading() as db:
+            states = {r["message_id"]: r for r in db.execute(
+                "SELECT m.* FROM message_state_index m WHERE " + where + " ORDER BY m.message_id " + direction + " LIMIT ?",
+                (*params, limit))}
+            ids = list(states)
+            if not ids:
+                return {"messages": [], "next_before": None, "next_after": None}
+            older = db.execute(
+                "SELECT 1 FROM message_state_index m WHERE " + scope + " AND m.message_id<? LIMIT 1",
+                (*scope_params, min(ids))).fetchone()
+            newer = db.execute(
+                "SELECT 1 FROM message_state_index m WHERE " + scope + " AND m.message_id>? LIMIT 1",
+                (*scope_params, max(ids))).fetchone()
+            rows = db.execute(
+                "SELECT seq, hash, observed_at, source_at, kind, message_id, payload FROM events"
+                " WHERE chat_id=? AND message_id IN (" + ",".join("?" * len(ids)) + ") AND kind IN (" + marks + ")"
+                " ORDER BY seq", (chat_id, *ids, *CHAT_KINDS)).fetchall()
+        messages = {}
+        for row in rows:
+            payload = json.loads(row["payload"])
+            item = messages.setdefault(row["message_id"], {
+                "message_id": row["message_id"], "first_seq": row["seq"],
+                "reference": {"event_hash": row["hash"], "seq": row["seq"], "kind": row["kind"]}, "sender": None, "sent_at": None,
+                "reply_to": None, "has_media": False, "service_action": None, "grouped_id": None,
+                "versions": [], "current_version": None, "media": [], "deleted": False, "deleted_observed_at": None,
+                "missing": False, "missing_observed_at": None, "auto_deleted": False,
+                "telegram_edited_at": None, "from_scheduled": False, "origins": []})
+            kind = row["kind"]
+            if kind in GONE_KINDS and isinstance(payload.get("auto_delete"), dict) and payload["auto_delete"].get("expected"):
+                item["auto_deleted"] = True
+            if kind in TEXT_KINDS:
+                current = row["seq"] == states[row["message_id"]]["text_seq"]
+                if current:
+                    item["missing"], item["missing_observed_at"], item["auto_deleted"] = False, None, False
+                observed = payload.get("sender_observation") or {}
+                if item["sender"] is None and (payload.get("sender_id") is not None or observed):
+                    item["sender"] = {"id": payload.get("sender_id", observed.get("id")),
+                                      "name": observed.get("display_name"), "username": observed.get("username")}
+                item["sent_at"] = item["sent_at"] or payload.get("sent_at") or row["source_at"]
+                item["reply_to"] = item["reply_to"] or payload.get("reply_to_message_id")
+                item["has_media"] = item["has_media"] or bool(payload.get("has_media"))
+                item["service_action"] = item["service_action"] or payload.get("service_action")
+                item["grouped_id"] = item["grouped_id"] or payload.get("grouped_id")
+                item["telegram_edited_at"] = payload.get("edited_at") or item["telegram_edited_at"]
+                item["from_scheduled"] = item["from_scheduled"] or bool((payload.get("raw") or {}).get("from_scheduled"))
+                origin = {"message.new": "live", "message.snapshot": "history", "message.edited": "edit",
+                          "message.recovered": "recheck"}[kind]
+                if origin not in item["origins"]:
+                    item["origins"].append(origin)
+                text, buttons = payload.get("text") or "", keyboard.of_payload(payload)
+                observable = message_content.of_payload(payload)
+                content_hash = hashlib.sha256(canonical(observable)).hexdigest()
+                version = {"text": text, "buttons": buttons, "observed_at": row["observed_at"], "event_hash": row["hash"],
+                           "entities": observable["entities"], "content_hash": content_hash,
+                           "edited_at": payload.get("edited_at"), "kind": kind, "seq": row["seq"],
+                           "matches_search": bool(search and search_text(search) in search_text(text))}
+                if current:
+                    item["current_version"] = version
+                if not item["versions"] or item["versions"][-1]["content_hash"] != content_hash \
+                        or item["versions"][-1]["edited_at"] != payload.get("edited_at"):
+                    item["versions"].append(version)
+                elif current:
+                    item["versions"][-1] = version
+            elif kind == "message.deleted":
+                item["deleted"] = True
+                item["deleted_observed_at"] = item["deleted_observed_at"] or row["observed_at"]
+            elif kind == "message.missing_on_recheck":
+                item["missing"] = True
+                item["missing_observed_at"] = item["missing_observed_at"] or row["observed_at"]
+            elif payload.get("media_sha256"):
+                item["media"].append({"sha256": payload["media_sha256"], "mime_type": payload.get("mime_type"),
+                                      "name": payload.get("original_name"), "size": payload.get("size")})
+        unnamed = {m["sender"]["id"] for m in messages.values()
+                   if m["sender"] and not m["sender"]["name"] and type(m["sender"]["id"]) is int}
+        if unnamed:
+            with self.reading() as db:
+                known = observed_names(db, chat_id, unnamed)
+            for item in messages.values():
+                names = known.get(item["sender"]["id"]) if item["sender"] and not item["sender"]["name"] else None
+                if names:
+                    found = next((n for n in reversed(names) if n["seq"] <= item["first_seq"]), names[0])
+                    item["sender"].update(name=found["name"], username=item["sender"]["username"] or found["username"])
+        result = []
+        for item in sorted(messages.values(), key=lambda m: m["message_id"]):
+            item["captured"] = bool(item["versions"])
+            current = item["current_version"]
+            item["text"] = current["text"] if current else None
+            item["buttons"] = current["buttons"] if current else None
+            item["missing"] = bool(states[item["message_id"]]["missing"])
+            item["edited"] = bool(states[item["message_id"]]["edited"] or item["telegram_edited_at"])
+            result.append(item)
+        return {"messages": result, "next_before": min(ids) if older else None,
+                "next_after": max(ids) if newer else None}
+
+    def events_after(self, seq, limit):
+        with self.reading() as db:
+            return [self.decode(r) for r in db.execute(
+                "SELECT * FROM events WHERE seq>? ORDER BY seq LIMIT ?", (seq, limit))]
+
+    def counts_since(self, observed_at, kinds):
+        with self.reading() as db:
+            return {(r[0], r[1]): r[2] for r in db.execute(
+                "SELECT chat_id, kind, count(*) FROM events WHERE observed_at>=? AND kind IN ("
+                + ",".join("?" * len(kinds)) + ") GROUP BY chat_id, kind", (observed_at, *kinds))}
+
+    def media_saved_after(self, seq):
+        with self.reading() as db:
+            return [(r[0], r[1]) for r in db.execute(
+                "SELECT seq, json_extract(payload,'$.media_sha256') FROM events WHERE kind IN ("
+                + ",".join("?" * len(STORED_MEDIA_KINDS)) + ") AND seq>? ORDER BY seq",
+                (*STORED_MEDIA_KINDS, seq)) if r[1]]
+
+    def media_in_chats(self, sha256, chat_ids):
+        marks = ",".join("?" * len(chat_ids))
+        with self.reading() as db:
+            return db.execute(
+                "SELECT 1 FROM events WHERE kind IN (?,?) AND chat_id IN (" + marks + ")"
+                " AND json_extract(payload,'$.media_sha256')=? LIMIT 1",
+                (*MEDIA_KINDS, *sorted(chat_ids), sha256)).fetchone() is not None
+
+    def stored_media(self, identity):
+        if not identity:
+            return None
+        with self.reading() as db:
+            row = db.execute("SELECT sha256,bytes,seq FROM media_identity_index WHERE identity=?",
+                             (identity,)).fetchone()
+        return dict(row) if row else None
+
+    def account_loss_statement(self, since=None):
+        with self.reading() as db:
+            row = db.execute(
+                "SELECT seq,hash,observed_at,payload FROM events WHERE kind='coverage.gap' AND observed_at>=? "
+                "AND json_extract(payload,'$.reason')='authorization_required' ORDER BY seq DESC LIMIT 1",
+                (since or "",)).fetchone()
+        if row is None:
+            return None
+        payload = json.loads(row["payload"])
+        return {"cause": payload.get("cause"), "telegram_error": payload.get("telegram_error"),
+                "operation": payload.get("operation"), "observed_at": row["observed_at"],
+                "meaning": payload.get("meaning"), "journal_record": {"seq": row["seq"], "hash": row["hash"]}}
+
+    def sender_in_chats(self, sender_id, chat_ids):
+        marks = ",".join("?" * len(chat_ids))
+        with self.reading() as db:
+            return db.execute(
+                "SELECT 1 FROM events WHERE chat_id IN (" + marks + ") AND message_id IS NOT NULL"
+                " AND json_extract(payload,'$.sender_id')=? LIMIT 1", (*sorted(chat_ids), sender_id)).fetchone() is not None
+
+    def events(self, chat_id=None, message_id=None, kind=None, before=None, limit=100, search=None, chat_ids=None,
+               *, since=None, until=None, message_min=None, message_max=None, timeout_s=None,
+               text_only=False, message_only=False, hide_system=False, after=None, hide_admin=False):
+        source, order, where, params = self._event_selection(
+            chat_id, message_id, kind, before, search, chat_ids, since=since, until=until,
+            message_min=message_min, message_max=message_max, text_only=text_only,
+            message_only=message_only, hide_system=hide_system, after=after, hide_admin=hide_admin)
+        sql = "SELECT events.* FROM " + source + where + " ORDER BY " + order
+        sql += " ASC LIMIT ?" if after is not None else " DESC LIMIT ?"
+        records = [self.decode(r) for r in self.bounded_read(sql, [*params, limit], timeout_s)]
+        return list(reversed(records)) if after is not None else records
+
+    def coverage_records(self, chat_id, kinds, *, since=None, until=None, hide_admin=False, limit=2000, timeout_s=2):
+        where = ["kind IN (" + ",".join("?" * len(kinds)) + ")", "(chat_id=? OR chat_id IS NULL)"]
+        params = [*kinds, chat_id]
+        if hide_admin:
+            where.append(ADMIN_RECORDS)
+        for comparison, value in (("observed_at>=?", since), ("observed_at<=?", until)):
+            if value is not None:
+                where.append(comparison)
+                params.append(value.astimezone(timezone.utc).isoformat(timespec="milliseconds"))
+        rows = self.bounded_read(
+            "SELECT seq,kind,chat_id,observed_at,json_extract(payload,'$.reason') AS reason,"
+            "json_extract(payload,'$.previous_observation.observed_at') AS previous FROM events WHERE "
+            + " AND ".join(where) + " ORDER BY seq DESC LIMIT ?", [*params, limit + 1], timeout_s)
+        records = []
+        for row in reversed(rows[:limit]):
+            payload = {}
+            if row["reason"] is not None:
+                payload["reason"] = row["reason"]
+            if row["previous"] is not None:
+                payload["previous_observation"] = {"observed_at": row["previous"]}
+            records.append({"seq": row["seq"], "kind": row["kind"], "chat_id": row["chat_id"],
+                            "observed_at": row["observed_at"], "payload": payload})
+        return {"events": records, "limited": len(rows) > limit}
+
+    def count_events(self, *, timeout_s=2, **filters):
+        source, _, where, params = self._event_selection(**filters)
+        return self.bounded_read("SELECT count(*) FROM " + source + where, params, timeout_s)[0][0]
+
+    def _event_selection(self, chat_id=None, message_id=None, kind=None, before=None, search=None, chat_ids=None,
+                         *, since=None, until=None, message_min=None, message_max=None,
+                         text_only=False, message_only=False, hide_system=False, after=None, hide_admin=False):
+        filters, params = [], []
+        source, order = "events", "seq"
+        if hide_admin:
+            filters.append(ADMIN_RECORDS)
+        if chat_ids is not None:
+            filters.append("chat_id IN (" + ",".join("?" * len(chat_ids)) + ")")
+            params.extend(sorted(chat_ids))
+        for key, value in (("chat_id", chat_id), ("message_id", message_id)):
+            if value is not None:
+                filters.append(key + "=?")
+                params.append(value)
+        if kind:
+            groups = JOURNAL_KIND_GROUPS
+            kinds = list(dict.fromkeys(value.strip() for value in kind.split(",") if value.strip()))
+            choices = []
+            for value in kinds:
+                for match in groups.get(value, (value,)):
+                    choices.append("kind LIKE ?" if match.endswith(".") else "kind=?")
+                    params.append(match + "%" if match.endswith(".") else match)
+            if choices:
+                filters.append("(" + " OR ".join(choices) + ")")
+        if hide_system:
+            filters.append("kind NOT IN ('collector.heartbeat','host.state') AND NOT "
+                           "(kind='media.skipped' AND COALESCE(json_extract(payload,'$.reason'),'')='media download disabled')")
+        if before is not None:
+            filters.append("seq<?")
+            params.append(before)
+        if after is not None:
+            filters.append("seq>?")
+            params.append(after)
+        if search:
+            candidate = self.read_index.candidate(search, text_only=text_only)
+            if candidate is not None:
+                table = "event_text_search" if text_only else "event_payload_search"
+                if text_only:
+                    source = ("(SELECT rowid FROM event_text_search WHERE event_text_search MATCH ? "
+                              "UNION SELECT seq AS rowid FROM events INDEXED BY event_text_nul WHERE "
+                              + NUL_PAYLOAD + ") AS candidates JOIN events ON events.seq=candidates.rowid")
+                    order = "candidates.rowid"
+                    params.insert(0, candidate)
+                else:
+                    source = table + " JOIN events ON events.seq=" + table + ".rowid"
+                    order = table + ".rowid"
+                    filters.append(table + " MATCH ?")
+                    params.append(candidate)
+            value = "COALESCE(json_extract(payload,'$.text'),'')" if text_only else "payload"
+            if text_only:
+                value = ("CASE WHEN instr(payload,'\\u0000')>0 AND json_type(payload,'$.text')='text' "
+                         "THEN nul_text(payload) ELSE " + value + " END")
+            filters.append("instr(search_text(" + value + "), ?)>0")
+            params.append(search_text(search))
+        if message_only:
+            filters.append("kind IN (" + ",".join("?" * len(CHAT_KINDS)) + ")")
+            params.extend(CHAT_KINDS)
+        for comparison, value in (("observed_at>=?", since), ("observed_at<=?", until)):
+            if value is not None:
+                filters.append(comparison)
+                params.append(value.astimezone(timezone.utc).isoformat(timespec="milliseconds"))
+        for comparison, value in (("message_id>=?", message_min), ("message_id<=?", message_max)):
+            if value is not None:
+                filters.append(comparison)
+                params.append(value)
+        return source, order, " WHERE " + " AND ".join(filters) if filters else "", params
+
+    def archive_chats(self, offset, limit, chat_ids):
+        sql = ("WITH known AS (SELECT chat_id,title,kind,enabled FROM targets UNION ALL "
+               "SELECT chat_id,NULL,NULL,0 FROM known_chat_index "
+               "WHERE chat_id NOT IN (SELECT chat_id FROM targets)) SELECT * FROM known")
+        params = []
+        if chat_ids is not None:
+            sql += " WHERE chat_id IN (" + ",".join("?" * len(chat_ids)) + ")"
+            params.extend(sorted(chat_ids))
+        sql += " ORDER BY chat_id LIMIT ? OFFSET ?"
+        return [dict(r) for r in self.bounded_read(sql, [*params, limit, offset], 3)]
+
+    def bounded_read(self, sql, params, timeout_s):
+        with self.reading() as db:
+            if timeout_s is None:
+                return db.execute(sql, params).fetchall()
+            deadline = time.monotonic() + timeout_s
+            db.set_progress_handler(lambda: int(time.monotonic() >= deadline), 1000)
+            try:
+                return db.execute(sql, params).fetchall()
+            except sqlite3.OperationalError as exc:
+                if time.monotonic() >= deadline:
+                    raise TimeoutError("Archive search timed out. Narrow the query.") from None
+                raise exc
+            finally:
+                db.set_progress_handler(None, 0)
+
+    def all_events(self):
+        with self.reading() as db:
+            return [self.decode(r) for r in db.execute("SELECT * FROM events ORDER BY seq")]
+
+    @contextmanager
+    def snapshot(self):
+        connection = sqlite3.connect(self.root / "journal.sqlite3")
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA query_only=ON")
+        connection.execute("BEGIN")
+        try:
+            head = connection.execute("SELECT seq,hash FROM events ORDER BY seq DESC LIMIT 1").fetchone()
+            yield JournalSnapshot(connection, dict(head) if head else None)
+        finally:
+            connection.rollback()
+            connection.close()
+
+    def verify(self, public_key):
+        from .verify import verify_events, verify_checkpoint
+        retained = self.retained_checkpoint()
+        with self.snapshot() as snapshot:
+            result = verify_events(snapshot.events(), public_key)
+            if retained:
+                verify_checkpoint(retained, public_key, result["events"], snapshot.hash_at)
+            return result
+
+    def retained_checkpoint(self):
+        path = self.root / "checkpoints" / "latest.json"
+        return json.loads(path.read_bytes()) if path.exists() else None
+
+    def media_stats(self, chat_ids=None):
+        clause = " WHERE chat_id IN (" + ",".join("?" * len(chat_ids)) + ")" if chat_ids is not None else ""
+        with self.reading() as db:
+            return {r[0]: r[1] for r in db.execute(
+                "SELECT state,count(*) FROM media_jobs" + clause + " GROUP BY state", sorted(chat_ids or []))}
+
+    def media_oldest(self, chat_ids=None):
+        clause = " AND j.chat_id IN (" + ",".join("?" * len(chat_ids)) + ")" if chat_ids is not None else ""
+        with self.reading() as db:
+            row = db.execute(
+                "SELECT min(e.observed_at) FROM media_jobs j JOIN events e ON e.seq=j.message_event "
+                "WHERE j.state IN ('queued','retry','running')" + clause, sorted(chat_ids or [])).fetchone()
+        return row[0]
+
+    @staticmethod
+    def priority_filter(filters, params, min_priority, max_priority, expedited):
+        bounds = []
+        for operator, value in ((">=", min_priority), ("<=", max_priority)):
+            if value is not None:
+                bounds.append("j.priority" + operator + "?")
+                params.append(value)
+        if bounds:
+            filters.append("(" + " AND ".join(bounds) + (" OR j.expedite=1)" if expedited else ")"))
+
+    def expedite_media(self, chat_id, message_id):
+        with self.transaction():
+            return self.db.execute("UPDATE media_jobs SET expedite=1,next_attempt=0 WHERE chat_id=? AND message_id=? "
+                                   "AND state IN ('queued','retry')", (chat_id, message_id)).rowcount
+
+    def claim_media(self, account_id, now=None, *, min_priority=None, max_priority=None, history_run=None,
+                    allow_takeout=False, exclude_history_run=None, expedited=False, exclude_active=False):
+        filters, params = [], [account_id, time.time() if now is None else now]
+        if exclude_active:
+            filters.append("(j.transfer_key IS NULL OR NOT EXISTS (SELECT 1 FROM media_jobs a "
+                           "WHERE a.account_id=j.account_id AND a.transfer_key=j.transfer_key AND a.state='running'))")
+        if not allow_takeout:
+            filters.append("NOT EXISTS (SELECT 1 FROM events e WHERE e.seq=j.message_event "
+                           "AND json_extract(e.payload,'$.acquisition.source_mode')='takeout')")
+        if history_run is not None:
+            filters.append("EXISTS (SELECT 1 FROM history_items h WHERE h.message_event=j.message_event AND h.run_id=?)")
+            params.append(history_run)
+        if exclude_history_run is not None:
+            filters.append("NOT EXISTS (SELECT 1 FROM history_items h WHERE h.message_event=j.message_event "
+                           "AND h.run_id=?)")
+            params.append(exclude_history_run)
+        self.priority_filter(filters, params, min_priority, max_priority, expedited)
+        with self.transaction():
+            row = self.db.execute(
+                "SELECT j.* FROM media_jobs j JOIN targets t USING(chat_id) "
+                "WHERE j.account_id=? AND t.enabled=1 AND j.state IN ('queued','retry') "
+                "AND j.next_attempt<=? " + ("AND " + " AND ".join(filters) if filters else "") +
+                " ORDER BY j.expedite DESC,j.priority,j.message_event LIMIT 1", params).fetchone()
+            if not row:
+                return None
+            self.db.execute("UPDATE media_jobs SET state='running',attempts=attempts+1 WHERE message_event=?",
+                            (row["message_event"],))
+            job = dict(row)
+            job["attempts"] += 1
+            return job
+
+    def next_history_media_attempt(self, account_id, run_id, *, min_priority=None, max_priority=None, expedited=False):
+        filters, params = [], [run_id, account_id]
+        self.priority_filter(filters, params, min_priority, max_priority, expedited)
+        with self.reading() as db:
+            return db.execute("SELECT min(j.next_attempt) FROM media_jobs j "
+                "JOIN history_items h ON h.message_event=j.message_event JOIN targets t USING(chat_id) "
+                "WHERE h.run_id=? AND j.account_id=? AND t.enabled=1 AND j.state IN ('queued','retry')"
+                + (" AND " + " AND ".join(filters) if filters else ""), params).fetchone()[0]
+
+    def clear_media_queue(self, through_seq):
+        if type(through_seq) is not int or not 0 <= through_seq < 2**53:
+            raise ValueError("Invalid queue cutoff")
+        with self.transaction():
+            rows = self.db.execute(
+                "SELECT message_event,chat_id,message_id FROM media_jobs "
+                "WHERE state IN ('queued','retry') AND message_event<=? ORDER BY message_event",
+                (through_seq,)).fetchall()
+            for row in rows:
+                self.append("media.skipped", {"message_event": row["message_event"],
+                                              "reason": "waiting download cancelled by operator",
+                                              **self.ephemeral_outcome(row["message_event"], "not_saved")},
+                            row["chat_id"], row["message_id"])
+            self.db.execute("UPDATE media_jobs SET state='cancelled',next_attempt=0,last_error='operator_cancelled' "
+                            "WHERE state IN ('queued','retry') AND message_event<=?", (through_seq,))
+            return len(rows)
+
+    def recover_media(self):
+        with self.transaction():
+            count = self.db.execute("SELECT count(*) FROM media_jobs WHERE state='running'").fetchone()[0]
+            if count:
+                self.db.execute("UPDATE media_jobs SET state='retry',next_attempt=0,"
+                                "last_error='interrupted' WHERE state='running'")
+                self.append("media.recovered", {"jobs": count, "reason": "previous attempt interrupted"})
+            return count
+
+    def ephemeral_outcome(self, message_event, status):
+        from . import ephemeral
+        with self.reading() as db:
+            row = db.execute("SELECT payload FROM events WHERE seq=?", (message_event,)).fetchone()
+        original = json.loads(row[0]) if row else {}
+        facts = original.get("ephemeral_media") or ephemeral.describe((original.get("raw") or {}).get("media"))
+        return ephemeral.outcome(facts, status) if facts else {}
+
+    def finish_media(self, job, state, payload, delay=0):
+        if state not in ("done", "hashed", "retry", "failed", "skipped"):
+            raise ValueError("Invalid media outcome")
+        payload = {**payload, **self.ephemeral_outcome(job["message_event"], {
+            "done": "saved", "hashed": "hashed", "retry": "retry"}.get(state, "not_saved"))}
+        with self.transaction():
+            self.append({"done": "media.saved", "hashed": "media.hashed", "retry": "media.retry", "failed": "media.failed",
+                         "skipped": "media.skipped"}[state],
+                        {"message_event": job["message_event"], "attempt": job["attempts"], **payload},
+                        job["chat_id"], job["message_id"])
+            self.db.execute("UPDATE media_jobs SET state=?,next_attempt=?,last_error=? WHERE message_event=?",
+                            (state, time.time() + delay, payload.get("error_type"), job["message_event"]))
+
+    def stats(self, chat_ids=None):
+        with self.reading() as db:
+            if chat_ids is None:
+                rows = db.execute("SELECT kind,total FROM event_kind_counts")
+            else:
+                rows = db.execute("SELECT kind,sum(total) FROM chat_event_kind_counts "
+                                  "WHERE chat_id IN (" + ",".join("?" * len(chat_ids)) + ") GROUP BY kind",
+                                  sorted(chat_ids))
+            counts = {r[0]: r[1] for r in rows}
+            tail = db.execute("SELECT seq,hash,observed_at FROM events ORDER BY seq DESC LIMIT 1").fetchone()
+        return {"counts": counts, "total": sum(counts.values()), "head": dict(tail) if tail else None}
+
+    def get_setting(self, key, default=None):
+        if key in CHAT_SETTINGS:
+            values = self.chat_settings(key)
+            return {str(chat_id): value for chat_id, value in values.items()} if values else default
+        with self.reading() as db:
+            row = db.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+        return json.loads(row[0]) if row else default
+
+    def set_setting(self, key, value):
+        with self.transaction():
+            if key in CHAT_SETTINGS:
+                self.db.execute("DELETE FROM chat_settings WHERE name=?", (key,))
+                self.db.executemany("INSERT INTO chat_settings VALUES (?,?,?)", chat_rows(key, value))
+            else:
+                self.db.execute("INSERT OR REPLACE INTO settings VALUES (?,?)", (key, json.dumps(value)))
+
+    def chat_setting(self, name, chat_id, default=None):
+        with self.reading() as db:
+            row = db.execute("SELECT value FROM chat_settings WHERE name=? AND chat_id=?", (name, chat_id)).fetchone()
+        return json.loads(row[0]) if row else default
+
+    def chat_settings(self, name):
+        with self.reading() as db:
+            return {row[0]: json.loads(row[1])
+                    for row in db.execute("SELECT chat_id,value FROM chat_settings WHERE name=?", (name,))}
+
+    def set_chat_settings(self, name, values):
+        with self.transaction():
+            self.db.executemany("INSERT OR REPLACE INTO chat_settings VALUES (?,?,?)",
+                                [(name, chat_id, json.dumps(value)) for chat_id, value in values.items()])
+
+    def targets(self, enabled_only=False):
+        with self.lock:
+            return [dict(r) for r in self.db.execute(
+                "SELECT * FROM targets" + (" WHERE enabled=1" if enabled_only else "") + " ORDER BY title")]
+
+    def target_counts(self):
+        with self.lock:
+            row = self.db.execute("SELECT count(*),coalesce(sum(enabled=1),0) FROM targets").fetchone()
+        return {"total": row[0], "enabled": row[1]}
+
+    def set_target(self, chat_id, title, kind, enabled, origin=None, priority=None):
+        with self.transaction():
+            self.db.execute(
+                "INSERT INTO targets(chat_id,title,enabled,kind,origin,priority) VALUES (?,?,?,?,?,?)"
+                " ON CONFLICT(chat_id) DO UPDATE SET title=excluded.title, enabled=excluded.enabled,"
+                " kind=excluded.kind" + (", origin=excluded.origin" if origin else "")
+                + (", priority=excluded.priority" if priority is not None else ""),
+                (chat_id, title, int(enabled), kind, origin or "manual",
+                 1 if priority is None else int(priority)))
+            self.targets_revision += 1
+
+    def remove_target(self, chat_id):
+        with self.transaction():
+            removed = self.db.execute("DELETE FROM targets WHERE chat_id=?", (chat_id,)).rowcount
+            waiting = self.db.execute("SELECT * FROM media_jobs WHERE chat_id=? AND state IN ('queued','retry')"
+                                      " ORDER BY message_event", (chat_id,)).fetchall()
+            for job in waiting:
+                self.finish_media(dict(job), "failed", {
+                    "error_type": "source_removed", "meaning": "the source was removed before this file was downloaded"})
+            self.targets_revision += 1
+        return bool(removed)
+
+    def account_message_chat(self, message_id):
+        with self.reading() as db:
+            chats = [r[0] for r in db.execute(
+                "SELECT chat_id FROM message_state_index WHERE message_id=? AND text_seq IS NOT NULL"
+                " AND chat_id>-1000000000000 LIMIT 2", (message_id,))]
+        return chats[0] if len(chats) == 1 else None
+
+    def latest_reply_keyboard(self, chat_id, window=500, before_message_id=None):
+        with self.reading() as db:
+            row = db.execute(
+                "SELECT seq, json_extract(payload,'$.raw.reply_markup') FROM (SELECT seq, message_id, payload FROM events"
+                " WHERE chat_id=? ORDER BY seq DESC LIMIT ?) WHERE"
+                " json_extract(payload,'$.raw.reply_markup._')='ReplyKeyboardMarkup'"
+                " AND (? IS NULL OR message_id<?) ORDER BY seq DESC LIMIT 1",
+                (chat_id, window, before_message_id, before_message_id)).fetchone()
+        if not row:
+            return None
+        markup = json.loads(row[1])
+        labels = [b.get("text") for r in markup.get("rows", []) for b in r.get("buttons", []) if b.get("text")]
+        return row[0], labels
+
+    def events_of(self, kinds, limit=50, after=None, before=None, *, chat_ids=None):
+        if not kinds or chat_ids is not None and not chat_ids:
+            return []
+        where, params = "kind IN (" + ",".join("?" * len(kinds)) + ")", list(kinds)
+        if chat_ids is not None:
+            where += " AND chat_id IN (" + ",".join("?" * len(chat_ids)) + ")"
+            params.extend(sorted(chat_ids))
+        if after is not None:
+            where += " AND seq>?"
+            params.append(after)
+        if before is not None:
+            where += " AND seq<?"
+            params.append(before)
+        with self.reading() as db:
+            return [self.decode(r) for r in db.execute(
+                "SELECT * FROM events WHERE " + where + " ORDER BY seq DESC LIMIT ?", (*params, limit))]
+
+    def chat_records(self, chat_id, kinds):
+        with self.reading() as db:
+            return [self.decode(r) for r in db.execute(
+                "SELECT * FROM events WHERE chat_id=? AND kind IN (" + ",".join("?" * len(kinds)) + ")"
+                " ORDER BY seq", (chat_id, *kinds))]
+
+    def sender_chats(self, sender_ids, *, allowed_chats=None):
+        if not sender_ids or allowed_chats is not None and not allowed_chats:
+            return {}
+        marks = ",".join("?" * len(TEXT_KINDS))
+        wanted = set(sender_ids)
+        sender_filter = "json_extract(payload,'$.sender_id') IN (" + ",".join("?" * len(wanted)) + ")"
+        if None in wanted:
+            sender_filter = "(" + sender_filter + " OR json_extract(payload,'$.sender_id') IS NULL)"
+        params = [*TEXT_KINDS, *wanted]
+        if allowed_chats is not None:
+            sender_filter += " AND chat_id IN (" + ",".join("?" * len(allowed_chats)) + ")"
+            params.extend(allowed_chats)
+        result = {}
+        with self.reading() as db:
+            for chat_id, sender, count in db.execute(
+                    "SELECT chat_id, json_extract(payload,'$.sender_id') AS sender, count(DISTINCT message_id) FROM events"
+                    " WHERE kind IN (" + marks + ") AND chat_id IS NOT NULL"
+                    " AND " + sender_filter +
+                    " GROUP BY chat_id, sender", params):
+                result.setdefault(sender, {})[chat_id] = count
+        return result
+
+    def close(self):
+        for reader in list(self.read_connections):
+            reader.db.close()
+        self.fulltext.close()
+        self.db.close()
+
+
+class JournalSnapshot:
+    def __init__(self, connection, head):
+        self.connection, self.head = connection, head
+
+    def events(self):
+        for row in self.connection.execute("SELECT * FROM events ORDER BY seq"):
+            yield Store.decode(row)
+
+    def hash_at(self, seq):
+        if seq == 0:
+            return ZERO
+        row = self.connection.execute("SELECT hash FROM events WHERE seq=?", (seq,)).fetchone()
+        return row[0] if row else None

@@ -1,0 +1,139 @@
+{
+  "format": "tgwitness-examination-v1",
+  "code": "UZ",
+  "name_en": "Uzbekistan",
+  "name_local": "Oʻzbekiston / Узбекистан",
+  "court_languages": [
+    "uz",
+    "ru"
+  ],
+  "local_language": "ru",
+  "legal_family": "civil law",
+  "checked_at": "2026-11-11",
+  "expert_term": {
+    "local": "судебный эксперт (sud eksperti)",
+    "en": "forensic expert appointed by the investigator, prosecutor or court"
+  },
+  "procedures": [
+    {
+      "route": "criminal",
+      "appointment": {
+        "basis": "Уголовно-процессуальный кодекс Республики Узбекистан, глава 22 «Экспертиза»: ст. 172 (Основания для назначения экспертизы), ст. 173 (Обязательное назначение и производство экспертизы), ст. 174 (Лица, назначаемые экспертами), ст. 180 (Постановление или определение о назначении экспертизы), ст. 182 (Производство экспертизы в государственном судебно-экспертном учреждении), ст. 183 (Производство экспертизы вне экспертного учреждения)",
+        "summary_en": "The cited Criminal Procedure Code provisions identify appointment by resolution or court ruling and examination within or outside an expert institution. Their detailed requirements have not been verified.",
+        "source": "https://lex.uz/ru/docs/111463"
+      },
+      "questions": {
+        "basis": "ЗРУ-249 ст. 15, 23–24",
+        "summary_en": "Relevant findings beyond the referred questions may be reported. A reasoned inability statement is required where expertise, objects or available science are insufficient; the procedural authority setting the questions must be checked under the applicable code.",
+        "source": "https://lex.uz/ru/docs/1633100",
+        "checked_at": "2026-11-14"
+      },
+      "report_contents": {
+        "basis": "ЗРУ-249 ст. 23; additional route-specific requirements under УПК ст. 184 / ГПК ст. 98 remain to be checked",
+        "items_en": [
+          "Examination date and place; legal basis and appointing authority",
+          "Expert identity, qualifications, experience and organisation",
+          "Record of the prescribed criminal-liability warning",
+          "Questions, supplied objects and case materials, and persons present",
+          "Research, methods, results, reasoned answers and relevant additional findings",
+          "Signatures of the expert or every commission member; supporting illustrations as annexes",
+          "Reasons for any questions left unanswered because the supplied objects, materials or expertise are insufficient"
+        ],
+        "items_local": null,
+        "source": "https://lex.uz/ru/docs/1633100",
+        "checked_at": "2026-11-14"
+      },
+      "rights_duties": {
+        "basis": "ЗРУ-249 ст. 14–16",
+        "summary_en": "The expert may inspect relevant materials, request additions and report relevant unasked findings. Duties include complete, objective research, confidentiality, preservation and attendance when summoned. The institution head obtains the liability acknowledgment; additional procedural rules remain route-specific.",
+        "source": "https://lex.uz/ru/docs/1633100",
+        "checked_at": "2026-11-14"
+      },
+      "scope": "Current forensic-examination law, ZRU-249. Procedural-code requirements remain subject to the route-specific checks listed below. Reassess examinations from 13 December 2026 under ZRU-1152."
+    },
+    {
+      "route": "civil",
+      "appointment": {
+        "basis": "Гражданский процессуальный кодекс Республики Узбекистан от 22.01.2018: ст. 58 «Эксперт», ст. 95 «Экспертиза», ст. 97 «Определение круга вопросов, по которым требуется заключение экспертов»",
+        "summary_en": "The court appoints the examination (art. 95) and determines the range of questions on which an expert opinion is required (art. 97 title). Only article numbers and titles were verified.",
+        "source": "https://lex.uz/ru/docs/3517334"
+      },
+      "questions": {
+        "basis": "ГПК РУз ст. 97",
+        "summary_en": "The range of questions is determined under art. 97; whether the parties may propose questions, whether the expert may decline, and whether he may report facts not asked about under the GPK was not verified.",
+        "source": "https://lex.uz/ru/docs/3517334"
+      },
+      "report_contents": {
+        "basis": "ЗРУ-249 ст. 23; additional route-specific requirements under УПК ст. 184 / ГПК ст. 98 remain to be checked",
+        "items_en": [
+          "Examination date and place; legal basis and appointing authority",
+          "Expert identity, qualifications, experience and organisation",
+          "Record of the prescribed criminal-liability warning",
+          "Questions, supplied objects and case materials, and persons present",
+          "Research, methods, results, reasoned answers and relevant additional findings",
+          "Signatures of the expert or every commission member; supporting illustrations as annexes",
+          "Reasons for any questions left unanswered because the supplied objects, materials or expertise are insufficient"
+        ],
+        "items_local": null,
+        "source": "https://lex.uz/ru/docs/1633100",
+        "checked_at": "2026-11-14"
+      },
+      "rights_duties": {
+        "basis": "ЗРУ-249 ст. 14–16",
+        "summary_en": "The expert may inspect relevant materials, request additions and report relevant unasked findings. Duties include complete, objective research, confidentiality, preservation and attendance when summoned. The institution head obtains the liability acknowledgment; additional procedural rules remain route-specific.",
+        "source": "https://lex.uz/ru/docs/1633100",
+        "checked_at": "2026-11-14"
+      },
+      "scope": "Current forensic-examination law, ZRU-249. Procedural-code requirements remain subject to the route-specific checks listed below. Reassess examinations from 13 December 2026 under ZRU-1152."
+    }
+  ],
+  "statute": {
+    "title_local": "Закон Республики Узбекистан от 01.06.2010 № ЗРУ-249 «О судебной экспертизе» (действует до 13.12.2026)",
+    "title_en": "Law No. ZRU-249 of 1 June 2010 on Forensic Examination; applicable until 13 December 2026",
+    "source": "https://lex.uz/ru/docs/1633100",
+    "checked_at": "2026-11-14"
+  },
+  "liability": [
+    {
+      "route": "all",
+      "norm": "ЗРУ-249 ст. 14, 23 (warning requirement); УК ст. 238–240 (specific offences and penalties require separate review)",
+      "summary_en": "The current expert law requires warning about a knowingly false conclusion, unauthorised disclosure of investigation information, and refusal or evasion of a conclusion. This profile does not verify the criminal-code elements or penalties.",
+      "warning_local": "Мне разъяснена уголовная ответственность за заведомо ложное заключение, запрещённое разглашение данных проверки или расследования, а также отказ или уклонение от дачи заключения.",
+      "warning_en": "The criminal liability for a knowingly false conclusion, prohibited disclosure of inquiry or investigation information, and refusal or evasion of a conclusion has been explained to me.",
+      "wording": "composed",
+      "source": "https://lex.uz/ru/docs/1633100",
+      "checked_at": "2026-11-14"
+    }
+  ],
+  "declaration": {
+    "basis": "ЗРУ-249 ст. 14, 23: signed acknowledgment of the liability warning accompanies the conclusion; the wording below is composed, not an official institutional form",
+    "text_local": "Мне разъяснена уголовная ответственность за заведомо ложное заключение, запрещённое разглашение данных проверки или расследования, а также отказ или уклонение от дачи заключения.",
+    "text_en": "The criminal liability for a knowingly false conclusion, prohibited disclosure of inquiry or investigation information, and refusal or evasion of a conclusion has been explained to me.",
+    "wording": "composed",
+    "source": "https://lex.uz/ru/docs/1633100",
+    "checked_at": "2026-11-14",
+    "route": "all",
+    "scope": "Acknowledgment after the institution or competent authority gives the applicable warning. Export generation does not itself constitute that warning.",
+    "context": "authority_undertaking"
+  },
+  "standards": [],
+  "esignature": {
+    "law_local": "Закон Республики Узбекистан от 12.10.2022 № ЗРУ-793 «Об электронной цифровой подписи»",
+    "law_en": "Law of the Republic of Uzbekistan No. ZRU-793 of 12 October 2022 on Electronic Digital Signature",
+    "qualified_term_local": "электронная цифровая подпись (the law defines a single ЭЦП tier; no separate qualified tier found)",
+    "source": "https://lex.uz/ru/docs/6234906"
+  },
+  "timestamp": {
+    "basis": "ЗРУ-793 ст. 20 (registration centres provide a time-stamping service, штамп времени)",
+    "qualified_recognition": "A time stamp is described as an attribute confirming the existence of the signed electronic document at the stated time; no separate statutory presumption was found. An electronic digital signature is equivalent to a handwritten signature if its authenticity is confirmed, the certificate was valid at signing and it is used for its stated purpose (art. 4).",
+    "source": "https://lex.uz/ru/docs/6234906"
+  },
+  "open_questions": [
+    "ZRU-1152 replaces ZRU-249 on 13 December 2026. Its report, warning and transitional requirements must be reviewed before use from that date: https://lex.uz/ru/docs/8265779 .",
+    "Detailed requirements of Criminal Procedure Code arts. 67–68 and 172–187 and Civil Procedure Code arts. 58–60 and 95–101 remain unverified; the shared report checklist is drawn from the currently effective expert law.",
+    "Criminal Code arts. 238–240: precise offence elements, exceptions and penalties remain unverified.",
+    "The prescribed institutional acknowledgment form and its Uzbek-language wording remain unverified; the supplied declaration is composed.",
+    "Uzbek-language procedural wording and the legal basis for use of Russian in a particular proceeding require confirmation.",
+    "National O'z DSt adoption of ISO/IEC 27037/27041/27042/27043 and rules permitting electronically signed expert conclusions remain unverified."
+  ]
+}

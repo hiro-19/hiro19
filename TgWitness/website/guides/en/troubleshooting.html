@@ -1,0 +1,15 @@
+<p class="guide-outcome">Start from the symptom, check one thing at a time.</p>
+<h2 id="panel">The panel asks for a token</h2>
+<p>It wants the panel token from the file the launcher printed. Docker: <code>docker compose exec tgwitness cat /data/panel-token.txt</code>. Not a Telegram code, not a bot token, not the witness token.</p>
+<h2 id="network">Telegram does not connect</h2>
+<p>Run the connection check. On a public proxy, pick another one and save. Check the proxy type and secret format. Refreshing lists doesn't switch the route by itself.</p>
+<h2 id="messages">Connected, but no new messages</h2>
+<ol><li>Is observation running, in the right workspace?</li><li>Is the source selected and visible to that account?</li><li>Send a unique message in your test group and search for it.</li><li>Look for interruptions or Telegram errors in the journal.</li></ol>
+<p>A quiet chat just has nothing new. If completeness matters, run a controlled delivery test.</p>
+<h2 id="wait">FloodWait or a gap after a restart</h2>
+<p>FloodWait is Telegram saying "slow down". Wait it out and lighten the load, reconnecting won't help. After a restart TgWitness catches up what Telegram still has; the rest is a gap, so write it down.</p>
+<h2 id="bot">The bot is configured but posts nothing</h2>
+<p>Is the witness running, can the bot post in the channel, can it reach the collector and Bot API? Look in its journal for failed posts. A poll on the collector side doesn't mean a post went out.</p>
+<h2 id="github">Where is GitHub token integration?</h2>
+<p><strong>Planned.</strong> Extras describes the proposed fork and build verification workflow. There is currently no GitHub token form or automated attestation that a running installation matches a repository. See the <a href="@@REPO_URL@@/blob/@@BRANCH@@/docs/PRODUCT.md">current feature status</a>.</p>
+<p>Reporting a bug? Version, OS, steps and a redacted error. Never put sessions, tokens, private messages or the data directory in a public issue.</p>

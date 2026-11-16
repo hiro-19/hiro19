@@ -1,0 +1,29 @@
+[TgWitness](../../README.md) / [docs](../README.md)
+
+<picture>
+  <source media="(max-width: 640px) and (prefers-reduced-motion: reduce)" srcset="presentation/section-assets-mobile-static.svg">
+  <source media="(prefers-reduced-motion: reduce)" srcset="presentation/section-assets-static.svg">
+  <source media="(max-width: 640px)" srcset="presentation/section-assets-mobile.svg">
+  <img src="presentation/section-assets.svg" width="1200" alt="TgWitness / Visual assets">
+</picture>
+
+# Documentation assets
+
+Screenshots and presentation artwork used by the repository and documentation.
+Application screenshots use fictional demonstration data.
+
+| Asset group | Use |
+| --- | --- |
+| `chats.png`, `chats-dark.png`, `detail.png` | Saved conversations and version comparison |
+| `workspace.png`, `workspace-dark.png`, `sources.png` | Journal and collection scope |
+| `exports.png` | Signed export preparation |
+| `connection.png`, `qr-login.png`, `proxy-setup.png`, `public-proxies.png` | Account and connection setup |
+| `extras.png`, `witness-setup.png` | Optional witness workflows |
+| [`presentation/`](presentation/README.md) | Investigation artwork, shared SVG covers, navigation and dividers |
+| [`reports/`](reports/README.md) | Dossier, timeline and report-studio previews |
+
+## Refresh screenshots
+
+Use the private capture tools with synthetic records and inspect the output before
+replacing documentation assets. Keep screenshots and illustrative artwork distinguishable;
+an illustration is not an application screen or a verification result.

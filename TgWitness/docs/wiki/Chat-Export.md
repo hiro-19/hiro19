@@ -1,0 +1,73 @@
+<picture>
+  <source media="(max-width: 640px) and (prefers-reduced-motion: reduce)" srcset="../assets/presentation/wiki-chat-export-mobile-static.svg">
+  <source media="(prefers-reduced-motion: reduce)" srcset="../assets/presentation/wiki-chat-export-static.svg">
+  <source media="(max-width: 640px)" srcset="../assets/presentation/wiki-chat-export-mobile.svg">
+  <img src="../assets/presentation/wiki-chat-export.svg" width="1200" alt="Take the chat with you. Visible history, readable offline, in a signed archive.">
+</picture>
+
+# Export one chat
+
+**02 · INVESTIGATE AND EXPORT** · [All guides](Home.md) · [Get help](../../.github/SUPPORT.md)
+
+<details>
+<summary>On this page</summary>
+
+- [Choose and export](#choose-and-export)
+- [Choose the right kind of history](#choose-the-right-kind-of-history)
+- [Verify and hand over](#verify-and-hand-over)
+
+</details>
+
+Saves what your account can see in a chat as a signed archive, with a readable
+`chat.html` and a `chat.json` for tools.
+
+<p align="center"><picture><source media="(prefers-reduced-motion: reduce)" srcset="../assets/presentation/readme-feature-export-static.svg"><img src="../assets/presentation/readme-feature-export.svg" width="420" alt="Chat history becomes a signed HTML and JSON export."></picture></p>
+
+## Choose and export
+
+1. Pick the workspace and open **Chats**.
+2. Open the chat, **Export chat** (or **Exports → Capture or export one chat → Export full chat**).
+3. Wait for it to finish and save the archive.
+4. Keep the original. Unpack a copy, `chat.html` to read offline, `chat.json` for analysis.
+
+If the export fails or you cancel it, the messages and files read so far stay in the
+workspace under a statement signed with the collector key. The export form shows the
+saved range: **Resume export** continues from it, **Start over** deletes it and reads the
+chat again from the newest message. When Telegram ended the account's authorization during
+the export, **Download partial export** saves a signed archive of the saved range, marked
+partial. Details in [export hashes](../EXPORT_HASHES.md).
+
+While the export reads the chat, **Download messages read so far** saves a signed snapshot
+at any moment. It is a ZIP of pages of up to 2,000 messages, each signed with the workspace
+key as soon as it is written, at the latest about ten seconds after reading. Every page is a
+`.jsonl` file for tools and an `.html` file to read in a browser, newest messages first, and
+the `verify.py` inside checks the chain of page seals. Attachments and the full report come
+with the finished export. If TgWitness stops in the middle of a write, the snapshot stays
+valid up to its last seal; `verify.py` checks that part and reports the bytes after it.
+
+The account needs access to the chat; private chats work too. Each archive covers one
+chat. Exports can run concurrently on separate accounts; for a whole account use
+[account export](../ACCOUNT-EXPORT.md).
+
+## Choose the right kind of history
+
+| Your task | Use |
+| --- | --- |
+| Read a chat offline | **Full chat export** |
+| Pull history of enabled sources into the journal | **More tools → Sources → Chats in scope → Load full history** ([guide](../HISTORY.md)) |
+| Grab recent messages into the journal | **History snapshot** |
+| Catch edits and deletions as they happen | **Start observation** |
+| Hand over observations, media and verification data | **Signed evidence ZIP** in Exports |
+
+A chat export doesn't fill the journal or people profiles, and it can't bring back
+messages or versions Telegram no longer returns.
+
+## Verify and hand over
+
+Use a verifier you trust and a key fingerprint you kept separately. Details in
+[export and verification](Exports-and-Verification.md).
+
+For a multi-chat case keep each export next to your source register and timeline, and keep
+"sent at" and "collected at" apart.
+
+**Continue:** [Work a case](Investigations.md) · [Verify a handoff](Exports-and-Verification.md)

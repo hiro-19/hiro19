@@ -1,0 +1,119 @@
+{
+  "format": "tgwitness-examination-v1",
+  "code": "SG",
+  "name_en": "Singapore",
+  "name_local": "Singapore",
+  "court_languages": [
+    "en"
+  ],
+  "local_language": "en",
+  "legal_family": "common law",
+  "checked_at": "2026-11-11",
+  "expert_term": {
+    "local": "expert",
+    "en": "expert witness (term used in the Supreme Court Practice Directions 2021, para. 56(8)-(9)); the statutory definition in Evidence Act 1893 s. 47 was not verified"
+  },
+  "procedures": [
+    {
+      "route": "criminal",
+      "appointment": {
+        "basis": null,
+        "summary_en": null,
+        "source": null
+      },
+      "questions": {
+        "basis": null,
+        "summary_en": null,
+        "source": null
+      },
+      "report_contents": {
+        "basis": null,
+        "items_en": [],
+        "items_local": [],
+        "source": null
+      },
+      "rights_duties": {
+        "basis": null,
+        "summary_en": null,
+        "source": null
+      }
+    },
+    {
+      "route": "civil",
+      "appointment": {
+        "basis": "Rules of Court 2021, Order 12 rules 1–2",
+        "summary_en": "Expert evidence requires court approval. An expert has specialised knowledge from training, study or experience.",
+        "source": "https://sso.agc.gov.sg/SL/SCJA1969-S914-2021?ProvIds=P11-PO12-",
+        "checked_at": "2026-11-14"
+      },
+      "questions": {
+        "basis": "Rules of Court 2021, Order 12 rule 4",
+        "summary_en": "Parties propose agreed issues and facts for court approval; the court resolves disagreement. Evidence stays within those issues and facts unless the court orders otherwise.",
+        "source": "https://sso.agc.gov.sg/SL/SCJA1969-S914-2021?ProvIds=P11-PO12-",
+        "checked_at": "2026-11-14"
+      },
+      "report_contents": {
+        "basis": "Rules of Court 2021, Order 12 rule 5",
+        "items_en": [
+          "Signed expert report exhibited to the expert's affidavit",
+          "Qualifications and acknowledgment of the overriding duty to the court",
+          "Referred issues and agreed or assumed facts",
+          "Relied-on materials and necessary extracts",
+          "Names, qualifications and supervision of those conducting tests or data work",
+          "Range of opinion and reasons for the chosen opinion",
+          "Belief in the correctness of the opinion",
+          "Conclusions with reasons"
+        ],
+        "items_local": [],
+        "source": "https://sso.agc.gov.sg/SL/SCJA1969-S914-2021?ProvIds=P11-PO12-",
+        "checked_at": "2026-11-14"
+      },
+      "rights_duties": {
+        "basis": "Rules of Court 2021, Order 12 rules 1 and 6",
+        "summary_en": "The duty to assist the court overrides duties to the instructing or paying party. The court may order expert discussions and written clarification.",
+        "source": "https://sso.agc.gov.sg/SL/SCJA1969-S914-2021?ProvIds=P11-PO12-",
+        "checked_at": "2026-11-14"
+      },
+      "scope": "Civil proceedings governed by Rules of Court 2021, Order 12; criminal proceedings and any transitional or specialist-court rules require separate review."
+    }
+  ],
+  "statute": {
+    "title_local": null,
+    "title_en": null,
+    "source": null
+  },
+  "liability": [],
+  "declaration": {
+    "route": "civil",
+    "basis": "Rules of Court 2021, Order 12 rule 5(2)(b), (g); composed acknowledgment, not a prescribed oath",
+    "text_local": "I understand that my duty to assist the Court within my expertise on the referred issues overrides my obligations to the person instructing or paying me. I believe my opinion is correct.",
+    "text_en": "I understand that my duty to assist the Court within my expertise on the referred issues overrides my obligations to the person instructing or paying me. I believe my opinion is correct.",
+    "wording": "composed",
+    "source": "https://sso.agc.gov.sg/SL/SCJA1969-S914-2021?ProvIds=P11-PO12-",
+    "checked_at": "2026-11-14"
+  },
+  "standards": [],
+  "esignature": {
+    "law_local": "Electronic Transactions Act 2010, sections 8 and 17–19",
+    "law_en": "Electronic Transactions Act 2010: electronic signatures and secure electronic signatures; statutory exclusions and filing rules remain relevant",
+    "qualified_term_local": "secure electronic signature (Singapore statutory term; not EU qualified-signature status)",
+    "source": "https://sso.agc.gov.sg/Act/ETA2010",
+    "checked_at": "2026-11-14"
+  },
+  "timestamp": {
+    "basis": "Electronic Transactions Act 2010, section 19",
+    "qualified_recognition": "Section 19 provides rebuttable presumptions for secure records and secure signatures. It does not itself establish qualified status for a third-party RFC 3161 token. Non-secure signatures receive no authenticity or integrity presumption under this Part.",
+    "source": "https://sso.agc.gov.sg/Act/ETA2010?ProvIds=pr19-",
+    "checked_at": "2026-11-14"
+  },
+  "open_questions": [
+    "Evidence Act 1893 s. 47 (opinions of experts) wording and scope were not verified.",
+    "Evidence Act 1893 s. 116A (presumptions in relation to electronic records) and the other computer-output / electronic-record provisions were not verified.",
+    "Criminal Procedure Code 2010 s. 263 and s. 269 (expert reports in criminal proceedings, conditions for admission without calling the expert) were not verified.",
+    "Penal Code 1871 ss. 191-193 (giving and fabricating false evidence) and current maximum penalties were not verified.",
+    "State Courts Practice Directions 2021 provisions on experts were not checked.",
+    "Singapore national adoptions of ISO/IEC 27037/27041/27042/27043 (SS ISO/IEC ...) and any official digital-forensics guidance (e.g., from the Singapore Police Force or CSA) were not verified.",
+    "Whether Singapore has a statute regulating forensic expert activity was not verified.",
+    "The applicable commencement/transitional rules, specialist-court rules, electronic filing requirements and any separate timestamp-provider regime remain to be checked for the intended proceeding."
+  ]
+}
