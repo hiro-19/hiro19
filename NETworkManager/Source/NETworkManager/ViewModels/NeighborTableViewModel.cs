@@ -1,0 +1,525 @@
+﻿using log4net;
+using MahApps.Metro.SimpleChildWindow;
+using NETworkManager.Localization.Resources;
+using NETworkManager.Models.Export;
+using NETworkManager.Models.Network;
+using NETworkManager.Settings;
+using NETworkManager.Utilities;
+using NETworkManager.Utilities.WPF;
+using NETworkManager.Views;
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.ComponentModel;
+using System.Linq;
+using System.Threading.Tasks;
+using System.Windows;
+using System.Windows.Data;
+using System.Windows.Input;
+using System.Windows.Threading;
+
+namespace NETworkManager.ViewModels;
+
+/// <summary>
+/// View model for the neighbor table view (IPv4 ARP + IPv6 NDP).
+/// </summary>
+public class NeighborTableViewModel : ViewModelBase
+{
+    #region Contructor, load settings
+
+    /// <summary>
+    /// Delays filtering while the user is typing (see <see cref="Search"/>), so a large list is not filtered on
+    /// every key press.
+    /// </summary>
+    private readonly SearchDelay _searchDelay;
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="NeighborTableViewModel"/> class.
+    /// </summary>
+    public NeighborTableViewModel()
+    {
+        _searchDelay = new SearchDelay(GlobalStaticConfiguration.SearchDispatcherTimerTimeSpan, ApplySearch);
+
+        _isLoading = true;
+
+        // Result view + search
+        ResultsView = CollectionViewSource.GetDefaultView(Results);
+
+        ((ListCollectionView)ResultsView).CustomSort = Comparer<NeighborInfo>.Create((x, y) =>
+            IPAddressHelper.CompareIPAddresses(x.IPAddress, y.IPAddress));
+
+        ResultsView.Filter = o =>
+        {
+            if (string.IsNullOrEmpty(Search))
+                return true;
+
+            if (o is not NeighborInfo info)
+                return false;
+
+            var stateLocalized = ResourceTranslate(info.State);
+
+            return info.IPAddress.ToString().IndexOf(Search, StringComparison.OrdinalIgnoreCase) > -1 ||
+                   info.MACAddress.ToString().IndexOf(Search.Replace("-", "").Replace(":", ""),
+                       StringComparison.OrdinalIgnoreCase) > -1 ||
+                   (info.InterfaceAlias ?? string.Empty).IndexOf(Search, StringComparison.OrdinalIgnoreCase) > -1 ||
+                   info.State.ToString().IndexOf(Search, StringComparison.OrdinalIgnoreCase) > -1 ||
+                   stateLocalized.IndexOf(Search, StringComparison.OrdinalIgnoreCase) > -1 ||
+                   (info.IsMulticast ? Strings.Yes : Strings.No).IndexOf(
+                       Search, StringComparison.OrdinalIgnoreCase) > -1;
+        };
+
+        // Get neighbor table
+        _ = Refresh(true);
+
+        // Auto refresh
+        // No refresh while an entry is added / deleted (the table would be cleared while the user works with it)
+        _autoRefreshTimer = new AutoRefreshTimer(() => Refresh(), () => !IsModifying);
+
+        AutoRefreshTimes = CollectionViewSource.GetDefaultView(AutoRefreshTime.GetDefaults);
+        SelectedAutoRefreshTime = AutoRefreshTimes.SourceCollection.Cast<AutoRefreshTimeInfo>().FirstOrDefault(x =>
+            x.Value == SettingsManager.Current.NeighborTable_AutoRefreshTime.Value &&
+            x.TimeUnit == SettingsManager.Current.NeighborTable_AutoRefreshTime.TimeUnit);
+        AutoRefreshEnabled = SettingsManager.Current.NeighborTable_AutoRefreshEnabled;
+
+        _isLoading = false;
+    }
+
+    private static string ResourceTranslate(NeighborState state)
+    {
+        return Localization.ResourceTranslator.Translate(Localization.ResourceIdentifier.NeighborState, state);
+    }
+    #endregion
+
+    #region Variables
+
+    private static readonly ILog Log = LogManager.GetLogger(typeof(NeighborTableViewModel));
+
+    private readonly bool _isLoading;
+
+    /// <summary>
+    /// Refreshes the view automatically (see <see cref="AutoRefreshEnabled"/>).
+    /// </summary>
+    private readonly AutoRefreshTimer _autoRefreshTimer;
+
+    public string Search
+    {
+        get;
+        set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+
+            // Filter after a short delay while typing (see _searchDelay)
+            _searchDelay.Restart();
+
+            OnPropertyChanged();
+        }
+    }
+
+    public ObservableCollection<NeighborInfo> Results
+    {
+        get;
+        set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+        }
+    } = [];
+
+    public ICollectionView ResultsView { get; }
+
+    public NeighborInfo SelectedResult
+    {
+        get;
+        set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public IList SelectedResults
+    {
+        get;
+        set
+        {
+            if (Equals(value, field))
+                return;
+
+            field = value;
+            OnPropertyChanged();
+        }
+    } = new ArrayList();
+
+    public bool AutoRefreshEnabled
+    {
+        get;
+        set
+        {
+            if (value == field)
+                return;
+
+            if (!_isLoading)
+                SettingsManager.Current.NeighborTable_AutoRefreshEnabled = value;
+
+            field = value;
+
+            _autoRefreshTimer.IsEnabled = value;
+
+            OnPropertyChanged();
+        }
+    }
+
+    public ICollectionView AutoRefreshTimes { get; }
+
+    public AutoRefreshTimeInfo SelectedAutoRefreshTime
+    {
+        get;
+        set
+        {
+            if (value == field)
+                return;
+
+            if (!_isLoading)
+                SettingsManager.Current.NeighborTable_AutoRefreshTime = value;
+
+            field = value;
+
+            // Not in the list (e.g. a removed interval of an old settings file): the previous interval is kept
+            if (value != null)
+                _autoRefreshTimer.Interval = AutoRefreshTime.CalculateTimeSpan(value);
+
+            OnPropertyChanged();
+        }
+    }
+
+    public bool IsRefreshing
+    {
+        get;
+        set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public bool IsModifying
+    {
+        get;
+        set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// Gets the time of the last refresh, null before the first one (shown in the header).
+    /// </summary>
+    public DateTime? LastRefreshTime
+    {
+        get;
+        private set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// Gets the auto refresh, for the countdown in the header (see <see cref="AutoRefreshTimer.RemainingTime"/>).
+    /// </summary>
+    public AutoRefreshTimer AutoRefreshTimer => _autoRefreshTimer;
+
+    public bool IsStatusMessageDisplayed
+    {
+        get;
+        set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public string StatusMessage
+    {
+        get;
+        private set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+        }
+    }
+
+    #endregion
+
+    #region ICommands & Actions
+
+    public ICommand RefreshCommand => new RelayCommand(parameter => { _ = RefreshAction(); }, Refresh_CanExecute);
+
+    private bool Refresh_CanExecute(object parameter)
+    {
+        return !DialogHelper.IsAnyDialogOpen() &&
+               !IsRefreshing &&
+               !IsModifying &&
+               !AutoRefreshEnabled;
+    }
+
+    private async Task RefreshAction()
+    {
+        IsStatusMessageDisplayed = false;
+
+        await Refresh();
+    }
+
+    public ICommand DeleteTableCommand =>
+        new RelayCommand(parameter => { _ = DeleteTableAction(); }, ModifyEntry_CanExecute);
+
+    private async Task DeleteTableAction()
+    {
+        IsModifying = true;
+        IsStatusMessageDisplayed = false;
+
+        try
+        {
+            await NeighborTable.DeleteTableAsync();
+
+            await Refresh();
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = ex.Message;
+            IsStatusMessageDisplayed = true;
+        }
+        finally
+        {
+            IsModifying = false;
+        }
+    }
+
+    public ICommand DeleteEntryCommand =>
+        new RelayCommand(parameter => { _ = DeleteEntryAction(); }, ModifyEntry_CanExecute);
+
+    private async Task DeleteEntryAction()
+    {
+        IsModifying = true;
+        IsStatusMessageDisplayed = false;
+
+        try
+        {
+            await NeighborTable.DeleteEntryAsync(SelectedResult.IPAddress.ToString(), SelectedResult.InterfaceIndex);
+
+            await Refresh();
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = ex.Message;
+            IsStatusMessageDisplayed = true;
+        }
+        finally
+        {
+            IsModifying = false;
+        }
+    }
+
+    public ICommand AddEntryCommand =>
+        new RelayCommand(parameter => { _ = AddEntryAction(); }, ModifyEntry_CanExecute);
+
+    private async Task AddEntryAction()
+    {
+        IsModifying = true;
+        IsStatusMessageDisplayed = false;
+
+        var interfaces = await NeighborTable.GetInterfacesAsync();
+
+        var childWindow = new NeighborTableAddEntryChildWindow();
+
+        var childWindowViewModel = new NeighborTableAddEntryViewModel(async instance =>
+        {
+            childWindow.IsOpen = false;
+            ConfigurationManager.Current.IsChildWindowOpen = false;
+
+            try
+            {
+                await NeighborTable.AddEntryAsync(instance.IPAddress, MACAddressHelper.Format(instance.MACAddress, "-"), instance.SelectedInterface.Key);
+
+                await Refresh();
+            }
+            catch (Exception ex)
+            {
+                StatusMessage = ex.Message;
+                IsStatusMessageDisplayed = true;
+            }
+            finally
+            {
+                IsModifying = false;
+            }
+        }, _ =>
+        {
+            childWindow.IsOpen = false;
+            ConfigurationManager.Current.IsChildWindowOpen = false;
+
+            IsModifying = false;
+        }, interfaces);
+
+        childWindow.Title = Strings.AddEntry;
+
+        childWindow.DataContext = childWindowViewModel;
+
+        ConfigurationManager.Current.IsChildWindowOpen = true;
+
+        await Application.Current.MainWindow.ShowChildWindowAsync(childWindow);
+    }
+
+    private bool ModifyEntry_CanExecute(object parameter)
+    {
+        return ConfigurationManager.Current.IsAdmin &&
+               !DialogHelper.IsAnyDialogOpen() &&
+               !IsRefreshing &&
+               !IsModifying;
+    }
+
+    public ICommand RestartAsAdminCommand => new RelayCommand(parameter => { _ = RestartAsAdminAction(); });
+
+    private async Task RestartAsAdminAction()
+    {
+        try
+        {
+            (Application.Current.MainWindow as MainWindow)?.RestartApplication(true);
+        }
+        catch (Exception ex)
+        {
+            await DialogHelper.ShowMessageAsync(Application.Current.MainWindow, Strings.Error, ex.Message,
+                ChildWindowIcon.Error);
+        }
+    }
+
+    public ICommand ExportCommand => new RelayCommand(parameter => { _ = ExportAction(); });
+
+    private Task ExportAction()
+    {
+        var childWindow = new ExportChildWindow();
+
+        var childWindowViewModel = new ExportViewModel(async instance =>
+        {
+            childWindow.IsOpen = false;
+            ConfigurationManager.Current.IsChildWindowOpen = false;
+
+            try
+            {
+                // The rows shown in the grid (search / filter) in the order shown (sorting). Copied on the UI thread,
+                // exported in the background
+                var results = ResultsView.GetItemsInViewOrder<NeighborInfo>(instance.ExportAll, SelectedResults);
+
+                await Task.Run(() => ExportManager.Export(instance.FilePath, instance.FileType, results));
+            }
+            catch (Exception ex)
+            {
+                Log.Error("Error while exporting data as " + instance.FileType, ex);
+
+                await DialogHelper.ShowMessageAsync(Application.Current.MainWindow, Strings.Error,
+                   Strings.AnErrorOccurredWhileExportingTheData + Environment.NewLine +
+                    Environment.NewLine + ex.Message, ChildWindowIcon.Error);
+            }
+
+            SettingsManager.Current.NeighborTable_ExportFileType = instance.FileType;
+            SettingsManager.Current.NeighborTable_ExportFilePath = instance.FilePath;
+        }, _ =>
+        {
+            childWindow.IsOpen = false;
+            ConfigurationManager.Current.IsChildWindowOpen = false;
+        }, [
+            ExportFileType.Csv, ExportFileType.Xml, ExportFileType.Json
+        ], true, SettingsManager.Current.NeighborTable_ExportFileType,
+        SettingsManager.Current.NeighborTable_ExportFilePath);
+
+        childWindow.Title = Strings.Export;
+
+        childWindow.DataContext = childWindowViewModel;
+
+        ConfigurationManager.Current.IsChildWindowOpen = true;
+
+        return Application.Current.MainWindow.ShowChildWindowAsync(childWindow);
+    }
+
+    #endregion
+
+    #region Methods
+
+    private async Task Refresh(bool init = false)
+    {
+        IsRefreshing = true;
+
+        // An error of the last refresh / action is hidden (the refresh icon spins while refreshing)
+        IsStatusMessageDisplayed = false;
+
+        // The first load right away; a refresh takes at least the refresh interval (the refresh button can't be
+        // spammed), loading runs at the same time
+        var results = init
+            ? await NeighborTable.GetTableAsync()
+            : await TaskHelper.WithMinimumDurationAsync(() => NeighborTable.GetTableAsync(),
+                GlobalStaticConfiguration.ApplicationUIRefreshInterval);
+
+        Results.Clear();
+
+        results.ForEach(Results.Add);
+
+        LastRefreshTime = DateTime.Now;
+
+        IsRefreshing = false;
+    }
+
+    public void OnViewVisible()
+    {
+        _autoRefreshTimer.Resume();
+    }
+
+    public void OnViewHide()
+    {
+        _autoRefreshTimer.Pause();
+    }
+
+    #endregion
+
+    #region Events
+
+    /// <summary>
+    /// Gets the command to filter right away (Enter in the search box, see
+    /// <see cref="NETworkManager.Utilities.WPF.SearchTextBoxHelper"/>).
+    /// </summary>
+    public ICommand ApplySearchCommand => _searchDelay.ApplyCommand;
+
+    /// <summary>
+    /// Filters with the current <see cref="Search"/> right away.
+    /// </summary>
+    private void ApplySearch()
+    {
+        ResultsView.Refresh();
+    }
+
+    #endregion
+}

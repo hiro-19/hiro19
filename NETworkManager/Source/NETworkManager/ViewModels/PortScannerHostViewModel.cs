@@ -1,0 +1,178 @@
+using Dragablz;
+using NETworkManager.Controls;
+using NETworkManager.Localization.Resources;
+using NETworkManager.Models;
+using NETworkManager.Profiles;
+using NETworkManager.Utilities;
+using NETworkManager.Views;
+using System;
+using System.Collections.ObjectModel;
+using System.Windows.Input;
+
+namespace NETworkManager.ViewModels;
+
+/// <summary>
+/// The view model for the Port Scanner host, managing tabs and profiles.
+/// </summary>
+public class PortScannerHostViewModel : ProfileHostViewModelBase
+{
+    #region Variables
+
+    /// <summary>
+    /// Gets the InterTabClient for Dragablz.
+    /// </summary>
+    public IInterTabClient InterTabClient { get; }
+
+    /// <summary>
+    /// Gets or sets the InterTab partition identifier.
+    /// </summary>
+    public string InterTabPartition
+    {
+        get;
+        set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// Gets the collection of tab items.
+    /// </summary>
+    public ObservableCollection<DragablzTabItem> TabItems { get; }
+
+    /// <summary>
+    /// Gets or sets the index of the selected tab.
+    /// </summary>
+    public int SelectedTabIndex
+    {
+        get;
+        set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+        }
+    }
+
+    #endregion
+
+    #region Constructor
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="PortScannerHostViewModel"/> class.
+    /// </summary>
+    public PortScannerHostViewModel()
+    {
+        InterTabClient = new DragablzInterTabClient(ApplicationName.PortScanner);
+        InterTabPartition = nameof(ApplicationName.PortScanner);
+
+        var tabId = Guid.NewGuid();
+
+        TabItems =
+        [
+            new DragablzTabItem(Strings.NewTab, new PortScannerView(tabId), tabId)
+        ];
+
+        InitializeProfileHost();
+    }
+
+    #endregion
+
+    #region Profile host
+
+    protected override ApplicationName ApplicationName => ApplicationName.PortScanner;
+
+    #endregion
+
+    #region ICommand & Actions
+
+    /// <summary>
+    /// Gets the command to add a new tab.
+    /// </summary>
+    public ICommand AddTabCommand => new RelayCommand(_ => AddTabAction());
+
+    private void AddTabAction()
+    {
+        AddTab();
+    }
+
+    /// <summary>
+    /// Gets the command to scan the selected profile.
+    /// </summary>
+    public ICommand ScanProfileCommand => new RelayCommand(_ => ScanProfileAction(), ScanProfile_CanExecute);
+
+    private bool ScanProfile_CanExecute(object obj)
+    {
+        return !IsSearching && SelectedProfile != null;
+    }
+
+    private void ScanProfileAction()
+    {
+        AddTab(SelectedProfile);
+    }
+
+    /// <summary>
+    /// Gets the callback for closing a tab item.
+    /// </summary>
+    public ItemActionCallback CloseItemCommand => CloseItemAction;
+
+    private static void CloseItemAction(ItemActionCallbackArgs<TabablzControl> args)
+    {
+        ((args.DragablzItem.Content as DragablzTabItem)?.View as IDragablzTabItem)?.CloseTab();
+    }
+
+    #endregion
+
+    #region Methods
+
+    /// <summary>
+    /// Selects a tab (e.g. the tab that sent a notification). Nothing happens if it was closed or moved to another
+    /// window.
+    /// </summary>
+    /// <param name="tabId">Id of the tab.</param>
+    public void SelectTab(Guid tabId)
+    {
+        for (var i = 0; i < TabItems.Count; i++)
+        {
+            if (TabItems[i].Id != tabId)
+                continue;
+
+            SelectedTabIndex = i;
+            return;
+        }
+    }
+
+    /// <summary>
+    /// Adds a new tab with the specified host and ports.
+    /// </summary>
+    /// <param name="host">The host to scan.</param>
+    /// <param name="ports">The ports to scan.</param>
+    /// <param name="start">Starts it on the first load. If false, the input is only filled in.</param>
+    /// <param name="message">Message shown below the input (e.g. a port profile of the profile was not found).</param>
+    public void AddTab(string host = null, string ports = null, bool start = true, string message = null)
+    {
+        var tabId = Guid.NewGuid();
+
+        TabItems.Add(new DragablzTabItem(string.IsNullOrEmpty(host) ? Strings.NewTab : host,
+            new PortScannerView(tabId, host, ports, start, message), tabId));
+
+        SelectedTabIndex = TabItems.Count - 1;
+    }
+
+    public void AddTab(ProfileInfo profile, bool start = true)
+    {
+        // Ports of the profile or its group. A port profile that can't be found: the saved ports, with a note.
+        var ports = NETworkManager.Profiles.Application.PortScanner.GetPorts(profile, out var portProfileNotFound);
+
+        AddTab(profile.PortScanner_Host, ports, start,
+            portProfileNotFound ? Strings.PortProfileOfProfileNotFoundMessage : null);
+    }
+
+    #endregion
+}

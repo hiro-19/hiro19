@@ -1,0 +1,59 @@
+﻿using System.Net;
+using NETworkManager.Models.Lookup;
+
+namespace NETworkManager.Models.Network;
+
+/// <summary>
+///     Class containing information about a port in a <see cref="PortScanner" />.
+/// </summary>
+public class PortScannerPortInfo : PortInfo
+{
+    /// <summary>
+    ///     Creates a new instance of <see cref="PortScannerPortInfo" /> with the specified parameters.
+    /// </summary>
+    /// <param name="ipAddress">IP address of the host.</param>
+    /// <param name="hostname">Hostname of the host.</param>
+    /// <param name="port">Port number.</param>
+    /// <param name="lookupInfo">Port lookup info like service and description.</param>
+    /// <param name="status">State of the port.</param>
+    public PortScannerPortInfo(IPAddress ipAddress, string hostname, int port, PortLookupInfo lookupInfo,
+        PortState status) : base(port, lookupInfo, status)
+    {
+        IPAddress = ipAddress;
+        Hostname = hostname;
+    }
+
+    /// <summary>
+    ///     IP address of the host.
+    /// </summary>
+    public IPAddress IPAddress { get; set; }
+
+    /// <summary>
+    ///     Hostname of the host.
+    /// </summary>
+    public string Hostname { get; set; }
+
+    /// <summary>
+    ///     Hostname and IP address of the host (e.g. "server.example.com (10.0.0.1)"), only the IP address if there is
+    ///     no hostname. The results are grouped by it - one group per IP address, also if several hosts have the same
+    ///     hostname (e.g. a generic PTR record of a provider).
+    /// </summary>
+    public string HostAsString => string.IsNullOrEmpty(Hostname) ? IPAddress.ToString() : $"{Hostname} ({IPAddress})";
+
+    /// <summary>
+    ///     Change since the previous scan of the same hosts and ports (set by the view model after the scan, see
+    ///     <see cref="PortScannerScanComparer" />).
+    /// </summary>
+    public PortScannerPortChange Change
+    {
+        get;
+        set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+        }
+    }
+}

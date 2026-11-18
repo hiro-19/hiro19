@@ -1,0 +1,732 @@
+<UserControl x:Class="NETworkManager.Views.RDAPView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:converters="clr-namespace:NETworkManager.Converters;assembly=NETworkManager.Converters"
+             xmlns:validators="clr-namespace:NETworkManager.Validators;assembly=NETworkManager.Validators"
+             xmlns:mahAppsControls="clr-namespace:MahApps.Metro.Controls;assembly=MahApps.Metro"
+             xmlns:mah="http://metro.mahapps.com/winfx/xaml/controls"
+             xmlns:icons="clr-namespace:NETworkManager.Controls;assembly=NETworkManager.Controls"
+             xmlns:viewModels="clr-namespace:NETworkManager.ViewModels"
+             xmlns:localization="clr-namespace:NETworkManager.Localization.Resources;assembly=NETworkManager.Localization"
+             xmlns:wpfHelpers="clr-namespace:NETworkManager.Utilities.WPF;assembly=NETworkManager.Utilities.WPF"
+             xmlns:sys="clr-namespace:System;assembly=mscorlib"
+             mc:Ignorable="d" d:DataContext="{d:DesignInstance viewModels:RDAPViewModel}"
+             Loaded="UserControl_OnLoaded">
+    <UserControl.Resources>
+        <converters:BooleanToVisibilityCollapsedConverter x:Key="BooleanToVisibilityCollapsedConverter" />
+        <converters:BooleanReverseConverter x:Key="BooleanReverseConverter" />
+        <converters:BooleanReverseToVisibilityCollapsedConverter x:Key="BooleanReverseToVisibilityCollapsedConverter" />
+        <converters:IntNotZeroToVisibilityCollapsedConverter x:Key="IntNotZeroToVisibilityCollapsedConverter" />
+        <converters:RDAPQueryTypeToStringConverter x:Key="RDAPQueryTypeToStringConverter" />
+        <converters:RDAPQueryTypeToWatermarkConverter x:Key="RDAPQueryTypeToWatermarkConverter" />
+        <wpfHelpers:BindingProxy x:Key="BindingProxy" Data="{Binding}" />
+        <!-- Bound via the proxy, since the data context of a grid row is the item -->
+        <ContextMenu x:Key="RDAPExportContextMenu" MinWidth="150">
+            <MenuItem Header="{x:Static localization:Strings.ExportDots}"
+                      Command="{Binding Data.ExportCommand, Source={StaticResource BindingProxy}}">
+                <MenuItem.Icon>
+                    <Rectangle Width="16" Height="16" Fill="{DynamicResource MahApps.Brushes.Gray3}">
+                        <Rectangle.OpacityMask>
+                            <VisualBrush Stretch="Uniform" Visual="{icons:Lucide Kind=FileOutput}" />
+                        </Rectangle.OpacityMask>
+                    </Rectangle>
+                </MenuItem.Icon>
+            </MenuItem>
+        </ContextMenu>
+        <!-- Copy of a single value, hidden if the value is empty -->
+        <Style x:Key="RDAPCopyMenuItem" TargetType="{x:Type MenuItem}" BasedOn="{StaticResource CopyMenuItem}"
+               x:Shared="False">
+            <Style.Triggers>
+                <Trigger Property="CommandParameter" Value="{x:Null}">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                </Trigger>
+                <Trigger Property="CommandParameter" Value="{x:Static sys:String.Empty}">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+        <ContextMenu x:Key="RDAPEventsContextMenu" MinWidth="150">
+            <MenuItem Header="{x:Static localization:Strings.CopyDots}" Style="{StaticResource CopyMenuItem}">
+                <MenuItem Header="{x:Static localization:Strings.Action}"
+                          Command="{Binding Data.CopyDataToClipboardCommand, Source={StaticResource BindingProxy}}"
+                          CommandParameter="{Binding Action}" Style="{StaticResource RDAPCopyMenuItem}" />
+                <MenuItem Header="{x:Static localization:Strings.Date}"
+                          Command="{Binding Data.CopyDataToClipboardCommand, Source={StaticResource BindingProxy}}"
+                          CommandParameter="{Binding Date}" Style="{StaticResource RDAPCopyMenuItem}" />
+                <MenuItem Header="{x:Static localization:Strings.Actor}"
+                          Command="{Binding Data.CopyDataToClipboardCommand, Source={StaticResource BindingProxy}}"
+                          CommandParameter="{Binding Actor}" Style="{StaticResource RDAPCopyMenuItem}" />
+            </MenuItem>
+            <MenuItem Header="{x:Static localization:Strings.ExportDots}"
+                      Command="{Binding Data.ExportCommand, Source={StaticResource BindingProxy}}">
+                <MenuItem.Icon>
+                    <Rectangle Width="16" Height="16" Fill="{DynamicResource MahApps.Brushes.Gray3}">
+                        <Rectangle.OpacityMask>
+                            <VisualBrush Stretch="Uniform" Visual="{icons:Lucide Kind=FileOutput}" />
+                        </Rectangle.OpacityMask>
+                    </Rectangle>
+                </MenuItem.Icon>
+            </MenuItem>
+        </ContextMenu>
+        <ContextMenu x:Key="RDAPNameserversContextMenu" MinWidth="150">
+            <MenuItem Header="{x:Static localization:Strings.CopyDots}" Style="{StaticResource CopyMenuItem}">
+                <MenuItem Header="{x:Static localization:Strings.Name}"
+                          Command="{Binding Data.CopyDataToClipboardCommand, Source={StaticResource BindingProxy}}"
+                          CommandParameter="{Binding Name}" Style="{StaticResource RDAPCopyMenuItem}" />
+                <MenuItem Header="{x:Static localization:Strings.IPAddresses}"
+                          Command="{Binding Data.CopyDataToClipboardCommand, Source={StaticResource BindingProxy}}"
+                          CommandParameter="{Binding IPAddresses}" Style="{StaticResource RDAPCopyMenuItem}" />
+            </MenuItem>
+            <MenuItem Header="{x:Static localization:Strings.ExportDots}"
+                      Command="{Binding Data.ExportCommand, Source={StaticResource BindingProxy}}">
+                <MenuItem.Icon>
+                    <Rectangle Width="16" Height="16" Fill="{DynamicResource MahApps.Brushes.Gray3}">
+                        <Rectangle.OpacityMask>
+                            <VisualBrush Stretch="Uniform" Visual="{icons:Lucide Kind=FileOutput}" />
+                        </Rectangle.OpacityMask>
+                    </Rectangle>
+                </MenuItem.Icon>
+            </MenuItem>
+        </ContextMenu>
+        <ContextMenu x:Key="RDAPDSDataContextMenu" MinWidth="150">
+            <MenuItem Header="{x:Static localization:Strings.CopyDots}" Style="{StaticResource CopyMenuItem}">
+                <MenuItem Header="{x:Static localization:Strings.KeyTag}"
+                          Command="{Binding Data.CopyDataToClipboardCommand, Source={StaticResource BindingProxy}}"
+                          CommandParameter="{Binding KeyTag}" Style="{StaticResource RDAPCopyMenuItem}" />
+                <MenuItem Header="{x:Static localization:Strings.Algorithm}"
+                          Command="{Binding Data.CopyDataToClipboardCommand, Source={StaticResource BindingProxy}}"
+                          CommandParameter="{Binding Algorithm}" Style="{StaticResource RDAPCopyMenuItem}" />
+                <MenuItem Header="{x:Static localization:Strings.DigestType}"
+                          Command="{Binding Data.CopyDataToClipboardCommand, Source={StaticResource BindingProxy}}"
+                          CommandParameter="{Binding DigestType}" Style="{StaticResource RDAPCopyMenuItem}" />
+                <MenuItem Header="{x:Static localization:Strings.Digest}"
+                          Command="{Binding Data.CopyDataToClipboardCommand, Source={StaticResource BindingProxy}}"
+                          CommandParameter="{Binding Digest}" Style="{StaticResource RDAPCopyMenuItem}" />
+            </MenuItem>
+            <MenuItem Header="{x:Static localization:Strings.ExportDots}"
+                      Command="{Binding Data.ExportCommand, Source={StaticResource BindingProxy}}">
+                <MenuItem.Icon>
+                    <Rectangle Width="16" Height="16" Fill="{DynamicResource MahApps.Brushes.Gray3}">
+                        <Rectangle.OpacityMask>
+                            <VisualBrush Stretch="Uniform" Visual="{icons:Lucide Kind=FileOutput}" />
+                        </Rectangle.OpacityMask>
+                    </Rectangle>
+                </MenuItem.Icon>
+            </MenuItem>
+        </ContextMenu>
+        <ContextMenu x:Key="RDAPNetworksContextMenu" MinWidth="150">
+            <MenuItem Header="{x:Static localization:Strings.CopyDots}" Style="{StaticResource CopyMenuItem}">
+                <MenuItem Header="{x:Static localization:Strings.Handle}"
+                          Command="{Binding Data.CopyDataToClipboardCommand, Source={StaticResource BindingProxy}}"
+                          CommandParameter="{Binding Handle}" Style="{StaticResource RDAPCopyMenuItem}" />
+                <MenuItem Header="{x:Static localization:Strings.Name}"
+                          Command="{Binding Data.CopyDataToClipboardCommand, Source={StaticResource BindingProxy}}"
+                          CommandParameter="{Binding Name}" Style="{StaticResource RDAPCopyMenuItem}" />
+                <MenuItem Header="{x:Static localization:Strings.Range}"
+                          Command="{Binding Data.CopyDataToClipboardCommand, Source={StaticResource BindingProxy}}"
+                          CommandParameter="{Binding Range}" Style="{StaticResource RDAPCopyMenuItem}" />
+                <MenuItem Header="{x:Static localization:Strings.Country}"
+                          Command="{Binding Data.CopyDataToClipboardCommand, Source={StaticResource BindingProxy}}"
+                          CommandParameter="{Binding Country}" Style="{StaticResource RDAPCopyMenuItem}" />
+            </MenuItem>
+            <MenuItem Header="{x:Static localization:Strings.ExportDots}"
+                      Command="{Binding Data.ExportCommand, Source={StaticResource BindingProxy}}">
+                <MenuItem.Icon>
+                    <Rectangle Width="16" Height="16" Fill="{DynamicResource MahApps.Brushes.Gray3}">
+                        <Rectangle.OpacityMask>
+                            <VisualBrush Stretch="Uniform" Visual="{icons:Lucide Kind=FileOutput}" />
+                        </Rectangle.OpacityMask>
+                    </Rectangle>
+                </MenuItem.Icon>
+            </MenuItem>
+        </ContextMenu>
+        <ContextMenu x:Key="RDAPAutnumsContextMenu" MinWidth="150">
+            <MenuItem Header="{x:Static localization:Strings.CopyDots}" Style="{StaticResource CopyMenuItem}">
+                <MenuItem Header="{x:Static localization:Strings.Handle}"
+                          Command="{Binding Data.CopyDataToClipboardCommand, Source={StaticResource BindingProxy}}"
+                          CommandParameter="{Binding Handle}" Style="{StaticResource RDAPCopyMenuItem}" />
+                <MenuItem Header="{x:Static localization:Strings.Name}"
+                          Command="{Binding Data.CopyDataToClipboardCommand, Source={StaticResource BindingProxy}}"
+                          CommandParameter="{Binding Name}" Style="{StaticResource RDAPCopyMenuItem}" />
+                <MenuItem Header="{x:Static localization:Strings.Range}"
+                          Command="{Binding Data.CopyDataToClipboardCommand, Source={StaticResource BindingProxy}}"
+                          CommandParameter="{Binding Range}" Style="{StaticResource RDAPCopyMenuItem}" />
+                <MenuItem Header="{x:Static localization:Strings.Country}"
+                          Command="{Binding Data.CopyDataToClipboardCommand, Source={StaticResource BindingProxy}}"
+                          CommandParameter="{Binding Country}" Style="{StaticResource RDAPCopyMenuItem}" />
+            </MenuItem>
+            <MenuItem Header="{x:Static localization:Strings.ExportDots}"
+                      Command="{Binding Data.ExportCommand, Source={StaticResource BindingProxy}}">
+                <MenuItem.Icon>
+                    <Rectangle Width="16" Height="16" Fill="{DynamicResource MahApps.Brushes.Gray3}">
+                        <Rectangle.OpacityMask>
+                            <VisualBrush Stretch="Uniform" Visual="{icons:Lucide Kind=FileOutput}" />
+                        </Rectangle.OpacityMask>
+                    </Rectangle>
+                </MenuItem.Icon>
+            </MenuItem>
+        </ContextMenu>
+        <ContextMenu x:Key="RDAPContactsContextMenu" MinWidth="150">
+            <MenuItem Header="{x:Static localization:Strings.CopyDots}" Style="{StaticResource CopyMenuItem}">
+                <MenuItem Header="{x:Static localization:Strings.Roles}"
+                          Command="{Binding Data.CopyDataToClipboardCommand, Source={StaticResource BindingProxy}}"
+                          CommandParameter="{Binding Roles}" Style="{StaticResource RDAPCopyMenuItem}" />
+                <MenuItem Header="{x:Static localization:Strings.Handle}"
+                          Command="{Binding Data.CopyDataToClipboardCommand, Source={StaticResource BindingProxy}}"
+                          CommandParameter="{Binding Handle}" Style="{StaticResource RDAPCopyMenuItem}" />
+                <MenuItem Header="{x:Static localization:Strings.Name}"
+                          Command="{Binding Data.CopyDataToClipboardCommand, Source={StaticResource BindingProxy}}"
+                          CommandParameter="{Binding Name}" Style="{StaticResource RDAPCopyMenuItem}" />
+                <MenuItem Header="{x:Static localization:Strings.Organization}"
+                          Command="{Binding Data.CopyDataToClipboardCommand, Source={StaticResource BindingProxy}}"
+                          CommandParameter="{Binding Organization}" Style="{StaticResource RDAPCopyMenuItem}" />
+                <MenuItem Header="{x:Static localization:Strings.Email}"
+                          Command="{Binding Data.CopyDataToClipboardCommand, Source={StaticResource BindingProxy}}"
+                          CommandParameter="{Binding Email}" Style="{StaticResource RDAPCopyMenuItem}" />
+                <MenuItem Header="{x:Static localization:Strings.Phone}"
+                          Command="{Binding Data.CopyDataToClipboardCommand, Source={StaticResource BindingProxy}}"
+                          CommandParameter="{Binding Phone}" Style="{StaticResource RDAPCopyMenuItem}" />
+                <MenuItem Header="{x:Static localization:Strings.Address}"
+                          Command="{Binding Data.CopyDataToClipboardCommand, Source={StaticResource BindingProxy}}"
+                          CommandParameter="{Binding Address}" Style="{StaticResource RDAPCopyMenuItem}" />
+            </MenuItem>
+            <MenuItem Header="{x:Static localization:Strings.ExportDots}"
+                      Command="{Binding Data.ExportCommand, Source={StaticResource BindingProxy}}">
+                <MenuItem.Icon>
+                    <Rectangle Width="16" Height="16" Fill="{DynamicResource MahApps.Brushes.Gray3}">
+                        <Rectangle.OpacityMask>
+                            <VisualBrush Stretch="Uniform" Visual="{icons:Lucide Kind=FileOutput}" />
+                        </Rectangle.OpacityMask>
+                    </Rectangle>
+                </MenuItem.Icon>
+            </MenuItem>
+        </ContextMenu>
+        <converters:StringIsNotNullOrEmptyToVisibilityCollapsedConverter
+            x:Key="StringIsNotNullOrEmptyToVisibilityCollapsedConverter" />
+        <Style x:Key="RDAPSectionTextBlock" TargetType="{x:Type TextBlock}" BasedOn="{StaticResource DefaultTextBlock}">
+            <Setter Property="Foreground" Value="{DynamicResource MahApps.Brushes.Gray3}" />
+            <Setter Property="Margin" Value="0,20,0,10" />
+        </Style>
+        <Style x:Key="RDAPDataGrid" TargetType="{x:Type DataGrid}" BasedOn="{StaticResource DefaultDataGrid}">
+            <Setter Property="AutoGenerateColumns" Value="False" />
+            <Setter Property="IsReadOnly" Value="True" />
+            <Setter Property="CanUserAddRows" Value="False" />
+            <Setter Property="SelectionMode" Value="Extended" />
+        </Style>
+        <Style x:Key="RDAPWrapColumnStyle" TargetType="{x:Type TextBlock}">
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <DataTemplate x:Key="RDAPObjectTemplate" DataType="{x:Type viewModels:RDAPObjectViewModel}">
+            <StackPanel Margin="0,0,0,20">
+                <TextBlock Text="{Binding Title}" Style="{StaticResource HeaderTextBlock}"
+                           Visibility="{Binding Title, Converter={StaticResource StringIsNotNullOrEmptyToVisibilityCollapsedConverter}}" />
+                <!-- Details -->
+                <ItemsControl ItemsSource="{Binding Details}" Grid.IsSharedSizeScope="True">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate DataType="{x:Type viewModels:RDAPDetailItem}">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" SharedSizeGroup="RDAPDetailName" />
+                                    <ColumnDefinition Width="10" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="{Binding Name}"
+                                           Style="{StaticResource CenterTextBlock}" />
+                                <TextBox Grid.Column="2" Text="{Binding Value, Mode=OneWay}"
+                                         Style="{StaticResource TextBlockAsTextBox}" TextWrapping="Wrap"
+                                         ContextMenu="{StaticResource CopyContextMenu}" />
+                            </Grid>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <!-- Events -->
+                <StackPanel
+                    Visibility="{Binding Events.Count, Converter={StaticResource IntNotZeroToVisibilityCollapsedConverter}}">
+                    <TextBlock Text="{x:Static localization:Strings.Events}" Style="{StaticResource RDAPSectionTextBlock}" />
+                    <DataGrid ItemsSource="{Binding Events}" Style="{StaticResource RDAPDataGrid}"
+                              wpfHelpers:DataGridHelper.FillRemainingWidth="True">
+                        <DataGrid.RowStyle>
+                            <Style TargetType="{x:Type DataGridRow}"
+                                   BasedOn="{StaticResource MahApps.Styles.DataGridRow}">
+                                <Setter Property="ContextMenu" Value="{StaticResource RDAPExportContextMenu}" />
+                                <Style.Triggers>
+                                    <DataTrigger
+                                        Binding="{Binding SelectedItems.Count, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type DataGrid}}}"
+                                        Value="1">
+                                        <Setter Property="ContextMenu" Value="{StaticResource RDAPEventsContextMenu}" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </DataGrid.RowStyle>
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="{x:Static localization:Strings.Action}"
+                                                Binding="{Binding Action}" MinWidth="200" />
+                            <DataGridTextColumn Header="{x:Static localization:Strings.Date}"
+                                                Binding="{Binding Date}" MinWidth="200" />
+                            <DataGridTextColumn Header="{x:Static localization:Strings.Actor}"
+                                                Binding="{Binding Actor}" MinWidth="150" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </StackPanel>
+                <!-- Nameservers -->
+                <StackPanel
+                    Visibility="{Binding Nameservers.Count, Converter={StaticResource IntNotZeroToVisibilityCollapsedConverter}}">
+                    <TextBlock Text="{x:Static localization:Strings.Nameservers}"
+                               Style="{StaticResource RDAPSectionTextBlock}" />
+                    <DataGrid ItemsSource="{Binding Nameservers}" Style="{StaticResource RDAPDataGrid}"
+                              wpfHelpers:DataGridHelper.FillRemainingWidth="True">
+                        <DataGrid.RowStyle>
+                            <Style TargetType="{x:Type DataGridRow}"
+                                   BasedOn="{StaticResource MahApps.Styles.DataGridRow}">
+                                <Setter Property="ContextMenu" Value="{StaticResource RDAPExportContextMenu}" />
+                                <Style.Triggers>
+                                    <DataTrigger
+                                        Binding="{Binding SelectedItems.Count, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type DataGrid}}}"
+                                        Value="1">
+                                        <Setter Property="ContextMenu" Value="{StaticResource RDAPNameserversContextMenu}" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </DataGrid.RowStyle>
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="{x:Static localization:Strings.Name}"
+                                                Binding="{Binding Name}" MinWidth="250" />
+                            <DataGridTextColumn Header="{x:Static localization:Strings.IPAddresses}" FontFamily="{StaticResource Fonts.Family.Mono}"
+                                                Binding="{Binding IPAddresses}" MinWidth="200"
+                                                ElementStyle="{StaticResource RDAPWrapColumnStyle}" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </StackPanel>
+                <!-- DNSSEC -->
+                <StackPanel
+                    Visibility="{Binding DSData.Count, Converter={StaticResource IntNotZeroToVisibilityCollapsedConverter}}">
+                    <TextBlock Text="{x:Static localization:Strings.DNSSEC}" Style="{StaticResource RDAPSectionTextBlock}" />
+                    <DataGrid ItemsSource="{Binding DSData}" Style="{StaticResource RDAPDataGrid}"
+                              wpfHelpers:DataGridHelper.FillRemainingWidth="True">
+                        <DataGrid.RowStyle>
+                            <Style TargetType="{x:Type DataGridRow}"
+                                   BasedOn="{StaticResource MahApps.Styles.DataGridRow}">
+                                <Setter Property="ContextMenu" Value="{StaticResource RDAPExportContextMenu}" />
+                                <Style.Triggers>
+                                    <DataTrigger
+                                        Binding="{Binding SelectedItems.Count, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type DataGrid}}}"
+                                        Value="1">
+                                        <Setter Property="ContextMenu" Value="{StaticResource RDAPDSDataContextMenu}" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </DataGrid.RowStyle>
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="{x:Static localization:Strings.KeyTag}"
+                                                Binding="{Binding KeyTag}" MinWidth="80" />
+                            <DataGridTextColumn Header="{x:Static localization:Strings.Algorithm}"
+                                                Binding="{Binding Algorithm}" MinWidth="80" />
+                            <DataGridTextColumn Header="{x:Static localization:Strings.DigestType}"
+                                                Binding="{Binding DigestType}" MinWidth="80" />
+                            <DataGridTextColumn Header="{x:Static localization:Strings.Digest}" FontFamily="{StaticResource Fonts.Family.Mono}"
+                                                Binding="{Binding Digest}" MinWidth="200"
+                                                ElementStyle="{StaticResource RDAPWrapColumnStyle}" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </StackPanel>
+                <!-- Networks -->
+                <StackPanel
+                    Visibility="{Binding Networks.Count, Converter={StaticResource IntNotZeroToVisibilityCollapsedConverter}}">
+                    <TextBlock Text="{x:Static localization:Strings.Networks}" Style="{StaticResource RDAPSectionTextBlock}" />
+                    <DataGrid ItemsSource="{Binding Networks}" Style="{StaticResource RDAPDataGrid}"
+                              wpfHelpers:DataGridHelper.FillRemainingWidth="True">
+                        <DataGrid.RowStyle>
+                            <Style TargetType="{x:Type DataGridRow}"
+                                   BasedOn="{StaticResource MahApps.Styles.DataGridRow}">
+                                <Setter Property="ContextMenu" Value="{StaticResource RDAPExportContextMenu}" />
+                                <Style.Triggers>
+                                    <DataTrigger
+                                        Binding="{Binding SelectedItems.Count, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type DataGrid}}}"
+                                        Value="1">
+                                        <Setter Property="ContextMenu" Value="{StaticResource RDAPNetworksContextMenu}" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </DataGrid.RowStyle>
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="{x:Static localization:Strings.Handle}"
+                                                Binding="{Binding Handle}" MinWidth="150" />
+                            <DataGridTextColumn Header="{x:Static localization:Strings.Name}"
+                                                Binding="{Binding Name}" MinWidth="150" />
+                            <DataGridTextColumn Header="{x:Static localization:Strings.Range}" FontFamily="{StaticResource Fonts.Family.Mono}"
+                                                Binding="{Binding Range}" MinWidth="200"
+                                                ElementStyle="{StaticResource RDAPWrapColumnStyle}"
+                                                wpfHelpers:DataGridHelper.IsFillColumn="True" />
+                            <DataGridTextColumn Header="{x:Static localization:Strings.Country}"
+                                                Binding="{Binding Country}" MinWidth="80" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </StackPanel>
+                <!-- ASNumbers -->
+                <StackPanel
+                    Visibility="{Binding Autnums.Count, Converter={StaticResource IntNotZeroToVisibilityCollapsedConverter}}">
+                    <TextBlock Text="{x:Static localization:Strings.ASNumbers}" Style="{StaticResource RDAPSectionTextBlock}" />
+                    <DataGrid ItemsSource="{Binding Autnums}" Style="{StaticResource RDAPDataGrid}"
+                              wpfHelpers:DataGridHelper.FillRemainingWidth="True">
+                        <DataGrid.RowStyle>
+                            <Style TargetType="{x:Type DataGridRow}"
+                                   BasedOn="{StaticResource MahApps.Styles.DataGridRow}">
+                                <Setter Property="ContextMenu" Value="{StaticResource RDAPExportContextMenu}" />
+                                <Style.Triggers>
+                                    <DataTrigger
+                                        Binding="{Binding SelectedItems.Count, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type DataGrid}}}"
+                                        Value="1">
+                                        <Setter Property="ContextMenu" Value="{StaticResource RDAPAutnumsContextMenu}" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </DataGrid.RowStyle>
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="{x:Static localization:Strings.Handle}"
+                                                Binding="{Binding Handle}" MinWidth="150" />
+                            <DataGridTextColumn Header="{x:Static localization:Strings.Name}"
+                                                Binding="{Binding Name}" MinWidth="150" />
+                            <DataGridTextColumn Header="{x:Static localization:Strings.Range}" FontFamily="{StaticResource Fonts.Family.Mono}"
+                                                Binding="{Binding Range}" MinWidth="200"
+                                                ElementStyle="{StaticResource RDAPWrapColumnStyle}"
+                                                wpfHelpers:DataGridHelper.IsFillColumn="True" />
+                            <DataGridTextColumn Header="{x:Static localization:Strings.Country}"
+                                                Binding="{Binding Country}" MinWidth="80" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </StackPanel>
+                <!-- Contacts -->
+                <StackPanel
+                    Visibility="{Binding Contacts.Count, Converter={StaticResource IntNotZeroToVisibilityCollapsedConverter}}">
+                    <TextBlock Text="{x:Static localization:Strings.Contacts}" Style="{StaticResource RDAPSectionTextBlock}" />
+                    <DataGrid ItemsSource="{Binding Contacts}" Style="{StaticResource RDAPDataGrid}"
+                              wpfHelpers:DataGridHelper.FillRemainingWidth="True">
+                        <DataGrid.RowStyle>
+                            <Style TargetType="{x:Type DataGridRow}"
+                                   BasedOn="{StaticResource MahApps.Styles.DataGridRow}">
+                                <Setter Property="ContextMenu" Value="{StaticResource RDAPExportContextMenu}" />
+                                <Style.Triggers>
+                                    <DataTrigger
+                                        Binding="{Binding SelectedItems.Count, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type DataGrid}}}"
+                                        Value="1">
+                                        <Setter Property="ContextMenu" Value="{StaticResource RDAPContactsContextMenu}" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </DataGrid.RowStyle>
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="{x:Static localization:Strings.Roles}"
+                                                Binding="{Binding Roles}" MinWidth="120" />
+                            <DataGridTextColumn Header="{x:Static localization:Strings.Handle}"
+                                                Binding="{Binding Handle}" MinWidth="100" />
+                            <DataGridTextColumn Header="{x:Static localization:Strings.Name}"
+                                                Binding="{Binding Name}" MinWidth="150" />
+                            <DataGridTextColumn Header="{x:Static localization:Strings.Organization}"
+                                                Binding="{Binding Organization}" MinWidth="150" />
+                            <DataGridTextColumn Header="{x:Static localization:Strings.Email}"
+                                                Binding="{Binding Email}" MinWidth="150" />
+                            <DataGridTextColumn Header="{x:Static localization:Strings.Phone}"
+                                                Binding="{Binding Phone}" MinWidth="120" />
+                            <DataGridTextColumn Header="{x:Static localization:Strings.Address}"
+                                                Binding="{Binding Address}" MinWidth="200"
+                                                ElementStyle="{StaticResource RDAPWrapColumnStyle}" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </StackPanel>
+                <!-- Notices and remarks -->
+                <StackPanel
+                    Visibility="{Binding Notices.Count, Converter={StaticResource IntNotZeroToVisibilityCollapsedConverter}}">
+                    <TextBlock Text="{x:Static localization:Strings.Notices}" Style="{StaticResource RDAPSectionTextBlock}" />
+                    <ItemsControl ItemsSource="{Binding Notices}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="{x:Type viewModels:RDAPNoticeItem}">
+                                <StackPanel Margin="0,0,0,10">
+                                    <TextBlock Text="{Binding Title}" Style="{StaticResource BoldTextBlock}"
+                                               TextWrapping="Wrap" />
+                                    <TextBox Text="{Binding Description, Mode=OneWay}"
+                                             Style="{StaticResource TextBlockAsTextBox}" TextWrapping="Wrap"
+                                             FontWeight="Normal"
+                                             ContextMenu="{StaticResource CopyContextMenu}" />
+                                    <ItemsControl ItemsSource="{Binding Links}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate DataType="{x:Type viewModels:RDAPLinkItem}">
+                                                <TextBlock Style="{StaticResource DefaultTextBlock}"
+                                                           HorizontalAlignment="Left" TextWrapping="Wrap">
+                                                    <Hyperlink
+                                                        Command="{Binding Data.OpenUrlCommand, Source={StaticResource BindingProxy}}"
+                                                        CommandParameter="{Binding Url}"
+                                                        ToolTip="{Binding Url}"
+                                                        Style="{StaticResource LinkHyperlink}">
+                                                        <Run Text="{Binding Text, Mode=OneWay}" />
+                                                    </Hyperlink>
+                                                </TextBlock>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </StackPanel>
+        </DataTemplate>
+    </UserControl.Resources>
+    <Grid Margin="10">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+        <TextBlock Grid.Row="0" Style="{StaticResource HeaderTextBlock}"
+                   Text="{x:Static localization:Strings.Query}" />
+        <Grid Grid.Row="1" Margin="0,0,0,20">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+            <Grid Grid.Row="0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="10" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="10" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="10" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="10" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0"
+                           Text="{x:Static localization:Strings.Query}"
+                           Style="{DynamicResource DefaultTextBlock}"
+                           VerticalAlignment="Center" />
+                <ComboBox Grid.Column="2"
+                          x:Name="ComboBoxQuery" ItemsSource="{Binding QueryHistoryView}"
+                          mah:TextBoxHelper.Watermark="{Binding QueryType, Converter={StaticResource RDAPQueryTypeToWatermarkConverter}}" FontFamily="{StaticResource Fonts.Family.Mono}"
+                          IsReadOnly="{Binding IsRunning}"
+                          Style="{StaticResource HistoryComboBox}">
+                    <ComboBox.Text>
+                        <Binding Path="Query" Mode="TwoWay" UpdateSourceTrigger="PropertyChanged">
+                            <Binding.ValidationRules>
+                                <validators:EmptyValidator ValidatesOnTargetUpdated="True" />
+                                <validators:RDAPQueryValidator ValidatesOnTargetUpdated="True">
+                                    <validators:RDAPQueryValidator.Wrapper>
+                                        <validators:RDAPQueryDependencyObjectWrapper
+                                            QueryType="{Binding Data.QueryType, Source={StaticResource BindingProxy}}" />
+                                    </validators:RDAPQueryValidator.Wrapper>
+                                </validators:RDAPQueryValidator>
+                            </Binding.ValidationRules>
+                        </Binding>
+                    </ComboBox.Text>
+                </ComboBox>
+                <TextBlock Grid.Column="4"
+                           Text="{x:Static localization:Strings.Type}"
+                           Style="{DynamicResource DefaultTextBlock}"
+                           VerticalAlignment="Center" />
+                <ComboBox Grid.Column="6" ItemsSource="{Binding QueryTypes}"
+                          SelectedItem="{Binding QueryType}"
+                          IsEnabled="{Binding IsRunning, Converter={StaticResource BooleanReverseConverter}}"
+                          Width="120">
+                    <ComboBox.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding Converter={StaticResource RDAPQueryTypeToStringConverter}}" />
+                        </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                </ComboBox>
+                <Button Grid.Column="8" Command="{Binding QueryCommand}"
+                        IsDefault="{Binding IsRunning, Converter={StaticResource BooleanReverseConverter}}"
+                        IsCancel="{Binding IsRunning}">
+                    <Button.Resources>
+                        <Style TargetType="{x:Type Button}" BasedOn="{StaticResource ImageWithTextButton}">
+                            <Setter Property="IsEnabled" Value="True" />
+                            <Style.Triggers>
+                                <DataTrigger
+                                    Binding="{Binding Path=(Validation.HasError), ElementName=ComboBoxQuery}"
+                                    Value="True">
+                                    <Setter Property="IsEnabled" Value="False" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding IsCanceling}" Value="True">
+                                    <Setter Property="IsEnabled" Value="False" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Resources>
+                    <Button.Content>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Rectangle>
+                                <Rectangle.Resources>
+                                    <VisualBrush x:Key="VisualMagnify" Stretch="Uniform"
+                                                 Visual="{icons:Lucide Kind=Search}" />
+                                    <VisualBrush x:Key="VisualClose" Stretch="Uniform"
+                                                 Visual="{icons:Lucide Kind=X}" />
+                                </Rectangle.Resources>
+                                <Rectangle.Style>
+                                    <Style TargetType="{x:Type Rectangle}"
+                                           BasedOn="{StaticResource ButtonWithImageRectangle}">
+                                        <Setter Property="OpacityMask" Value="{StaticResource VisualMagnify}" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsRunning}" Value="True">
+                                                <Setter Property="OpacityMask" Value="{StaticResource VisualClose}" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Rectangle.Style>
+                            </Rectangle>
+                            <TextBlock Grid.Column="1">
+                                <TextBlock.Style>
+                                    <Style TargetType="{x:Type TextBlock}"
+                                           BasedOn="{StaticResource ButtonWithImageTextBlock}">
+                                        <Setter Property="Text" Value="{x:Static localization:Strings.Query}" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsRunning}" Value="True">
+                                                <Setter Property="Text" Value="{x:Static localization:Strings.Cancel}" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </Grid>
+                    </Button.Content>
+                </Button>
+            </Grid>
+            <mahAppsControls:MetroProgressBar Grid.Row="1" Margin="0,10,0,0"
+                                              IsIndeterminate="True">
+                <mahAppsControls:MetroProgressBar.Style>
+                    <Style TargetType="{x:Type mahAppsControls:MetroProgressBar}" BasedOn="{StaticResource DefaultMetroProgressBar}">
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsRunning}" Value="False">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </mahAppsControls:MetroProgressBar.Style>
+            </mahAppsControls:MetroProgressBar>
+            <icons:StatusMessageText Level="{Binding StatusMessageLevel}" Grid.Row="2"
+                       Text="{Binding StatusMessage}"
+                       Visibility="{Binding IsStatusMessageDisplayed, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" Margin="0,10,0,0" />
+        </Grid>
+        <Grid Grid.Row="2"
+              Visibility="{Binding IsResultVisible, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="10" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+            <Grid Grid.Row="0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0"
+                           Style="{StaticResource HeaderTextBlock}"
+                           Text="{x:Static localization:Strings.Result}" />
+                <CheckBox Grid.Column="1"
+                          Content="{x:Static localization:Strings.RawJSON}"
+                          IsChecked="{Binding ShowRawJSON}"
+                          VerticalAlignment="Center" Margin="0,0,0,10" />
+            </Grid>
+            <ScrollViewer Grid.Row="1"
+                          PreviewMouseWheel="ScrollViewer_PreviewMouseWheel"
+                          ContextMenu="{StaticResource RDAPExportContextMenu}"
+                          HorizontalScrollBarVisibility="Disabled"
+                          VerticalScrollBarVisibility="Auto"
+                          Visibility="{Binding ShowRawJSON, Converter={StaticResource BooleanReverseToVisibilityCollapsedConverter}}">
+                <ItemsControl ItemsSource="{Binding Results}"
+                              ItemTemplate="{StaticResource RDAPObjectTemplate}" />
+            </ScrollViewer>
+            <TextBox Grid.Row="1"
+                     VerticalAlignment="Stretch"
+                     VerticalContentAlignment="Top"
+                     VerticalScrollBarVisibility="Auto"
+                     HorizontalScrollBarVisibility="Auto"
+                     Text="{Binding RawJSON, Mode=OneWay}" FontFamily="{StaticResource Fonts.Family.Mono}"
+                     IsReadOnly="True"
+                     Style="{StaticResource ConsoleTextBox}"
+                     ContextMenu="{StaticResource CopyExportContextMenu}"
+                     Visibility="{Binding ShowRawJSON, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
+            <Button Grid.Row="3"
+                    Command="{Binding Path=ExportCommand}"
+                    HorizontalAlignment="Right">
+                <Button.Style>
+                    <Style TargetType="{x:Type TypeName=Button}"
+                           BasedOn="{StaticResource ResourceKey=ImageWithTextButton}" />
+                </Button.Style>
+                <Button.Content>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Rectangle Grid.Column="0" Grid.Row="0"
+                                   Style="{StaticResource ResourceKey=ButtonWithImageRectangle}">
+                            <Rectangle.OpacityMask>
+                                <VisualBrush Stretch="Uniform" Visual="{icons:Lucide Kind=FileOutput}" />
+                            </Rectangle.OpacityMask>
+                        </Rectangle>
+                        <TextBlock Grid.Column="1" Grid.Row="0"
+                                   Text="{x:Static Member=localization:Strings.ExportDots}"
+                                   Style="{StaticResource ResourceKey=ButtonWithImageTextBlock}" />
+                    </Grid>
+                </Button.Content>
+            </Button>
+        </Grid>
+        <TextBlock Grid.Row="2"
+                   Foreground="{DynamicResource MahApps.Brushes.Gray3}"
+                   Text="{x:Static localization:Strings.EnterAQueryToQueryRDAPDots}"
+                   VerticalAlignment="Center"
+                   HorizontalAlignment="Center"
+                   TextWrapping="Wrap"
+                   TextAlignment="Center"
+                   Margin="10">
+            <TextBlock.Style>
+                <Style TargetType="{x:Type TextBlock}" BasedOn="{StaticResource HeaderTextBlock}">
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding IsResultVisible}" Value="True">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding IsOpenInWhoisVisible}" Value="True">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </TextBlock.Style>
+        </TextBlock>
+        <!-- No RDAP server known for the domain: offer to query it with Whois -->
+        <StackPanel Grid.Row="2" VerticalAlignment="Center" HorizontalAlignment="Center" Margin="10"
+                    Visibility="{Binding IsOpenInWhoisVisible, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+            <TextBlock Foreground="{DynamicResource MahApps.Brushes.Gray3}"
+                       Text="{x:Static localization:Strings.DomainCannotBeQueriedViaRDAPTryWhois}"
+                       Style="{StaticResource HeaderTextBlock}"
+                       HorizontalAlignment="Center"
+                       TextWrapping="Wrap"
+                       TextAlignment="Center" />
+            <Button Command="{Binding OpenInWhoisCommand}"
+                    Style="{StaticResource ImageWithTextButton}"
+                    HorizontalAlignment="Center">
+                <Button.Content>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Rectangle Style="{StaticResource ButtonWithImageRectangle}">
+                            <Rectangle.OpacityMask>
+                                <VisualBrush Stretch="Uniform" Visual="{icons:Lucide Kind=FileSearch}" />
+                            </Rectangle.OpacityMask>
+                        </Rectangle>
+                        <TextBlock Grid.Column="1" Text="{x:Static localization:Strings.OpenInWhois}"
+                                   Style="{StaticResource ButtonWithImageTextBlock}" />
+                    </Grid>
+                </Button.Content>
+            </Button>
+        </StackPanel>
+    </Grid>
+</UserControl>

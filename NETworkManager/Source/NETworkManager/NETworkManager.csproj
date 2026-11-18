@@ -1,0 +1,160 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+	
+    <PropertyGroup>
+        <OutputType>WinExe</OutputType>
+		<RootNamespace>NETworkManager</RootNamespace>
+		<AssemblyName>NETworkManager</AssemblyName>
+		<!-- Windows SDK version as TargetPlatformVersion instead of in the TFM (net10.0-windows10.0.22621.0), otherwise
+		     Dependabot can't update the NuGet packages (https://github.com/dependabot/dependabot-core/issues/13278) -->
+		<TargetFramework>net10.0-windows</TargetFramework>
+		<TargetPlatformIdentifier>Windows</TargetPlatformIdentifier>
+		<TargetPlatformVersion>10.0.22621.0</TargetPlatformVersion>
+        <!-- Restore resolves NuGet assets for both RIDs; the active one for a given build is picked below and can be overridden via -p:RuntimeIdentifier / -p:PlatformTarget -->
+        <RuntimeIdentifiers>win-x64;win-arm64</RuntimeIdentifiers>
+        <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-x64</RuntimeIdentifier>
+        <PlatformTarget Condition="'$(PlatformTarget)' == ''">x64</PlatformTarget>
+        <SelfContained>false</SelfContained>
+        <CsWinRTWindowsMetadata>sdk</CsWinRTWindowsMetadata>        
+        <UseWPF>true</UseWPF>
+        <UseWindowsForms>true</UseWindowsForms>		
+        <StartupObject>NETworkManager.App</StartupObject>
+		<ApplicationManifest>app.manifest</ApplicationManifest>
+		<ApplicationIcon>NETworkManager.ico</ApplicationIcon>		
+		<GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+        <ProduceReferenceAssembly>false</ProduceReferenceAssembly>
+        <Authors>BornToBeRoot</Authors>
+        <PackageProjectUrl>https://github.com/BornToBeRoot/NETworkManager</PackageProjectUrl>
+        <RepositoryUrl>https://github.com/BornToBeRoot/NETworkManager</RepositoryUrl>
+        <PackageLicenseFile>NETworkManager.txt</PackageLicenseFile>
+        <PackageIcon>NETworkManager.ico</PackageIcon>
+        <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+        <Description>A powerful open-source tool for managing networks and troubleshooting network problems!</Description>
+    </PropertyGroup>
+    <PropertyGroup>
+        <BeautySharedRuntimeMode>False</BeautySharedRuntimeMode>
+        <BeautyLibsDir Condition="$(BeautySharedRuntimeMode) == 'True'">../lib</BeautyLibsDir>
+        <BeautyLibsDir Condition="$(BeautySharedRuntimeMode) != 'True'">./lib</BeautyLibsDir>
+        <!-- Exclude files if necessary
+        <BeautyExcludes>NETworkManager.Models.dll</BeautyExcludes>
+        -->
+        <!-- Hidden files are not supported by Compress-Archive (Portable, Archive) and InnoSetup (Installer)
+        <BeautyHiddens>*.deps.json;*.runtimeconfig.json;*.dll.config</BeautyHiddens>
+        -->
+        <DisableBeauty>False</DisableBeauty>
+        <BeautyOnPublishOnly>False</BeautyOnPublishOnly>
+        <BeautyEnableDebugging>False</BeautyEnableDebugging>
+        <BeautyUsePatch>False</BeautyUsePatch>
+        <BeautyLogLevel>Info</BeautyLogLevel>
+    </PropertyGroup>
+    <ItemGroup>
+        <None Remove="log4net.config" />
+        <None Remove="NETworkManager.ico" />
+        <None Remove="SplashScreen.png" />
+        <None Include="..\.editorconfig" Link=".editorconfig" />
+        <None Include="NETworkManager.ico">
+            <Pack>True</Pack>
+        </None>
+    </ItemGroup>
+    <ItemGroup>
+        <Content Include="log4net.config">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </Content>
+    </ItemGroup>
+    <ItemGroup>
+        <PackageReference Include="DnsClient" Version="1.8.0" />
+        <PackageReference Include="gong-wpf-dragdrop" Version="4.0.0" />
+        <PackageReference Include="IPNetwork2" Version="5.0.1" />
+        <PackageReference Include="Lextm.SharpSnmpLib" Version="12.5.7" />
+        <PackageReference Include="LiveChartsCore.SkiaSharpView.WPF" Version="2.0.5" />
+        <PackageReference Include="log4net" Version="3.6.0" />
+        <PackageReference Include="MahApps.Metro" Version="2.4.11" />
+        <PackageReference Include="MahApps.Metro.SimpleChildWindow" Version="2.2.1" />
+        <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4314.35" />
+        <PackageReference Include="Microsoft.Windows.CsWinRT" Version="2.3.1" />        
+        <PackageReference Include="Microsoft.Xaml.Behaviors.Wpf" Version="1.1.161" />
+        <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
+        <PackageReference Include="Microsoft.PowerShell.SDK" Version="7.6.10" />
+        <PackageReference Include="nulastudio.NetBeauty" Version="2.1.5" />
+        <Reference Include="AxMSTSCLib">
+            <HintPath>$(TargetDir)\lib\AxMSTSCLib.dll</HintPath>
+        </Reference>
+        <Reference Include="MSTSCLib">
+            <HintPath>$(TargetDir)\lib\MSTSCLib.dll</HintPath>
+        </Reference>
+        <Compile Include="..\GlobalAssemblyInfo.cs" Link="Properties\GlobalAssemblyInfo.cs" />
+    </ItemGroup>
+
+    <!-- Referenced projects don't declare RuntimeIdentifiers themselves (they're plain libraries with
+         no RID-specific packages), so keep RuntimeIdentifier/PlatformTarget from cascading into them -
+         otherwise they'd need a matching restore target for whatever RID this project is built with. -->
+    <ItemDefinitionGroup>
+        <ProjectReference>
+            <GlobalPropertiesToRemove>RuntimeIdentifier;RuntimeIdentifiers;PlatformTarget;SelfContained</GlobalPropertiesToRemove>
+        </ProjectReference>
+    </ItemDefinitionGroup>
+    <ItemGroup>
+        <ProjectReference Include="..\3rdparty\Dragablz\Dragablz.csproj" />
+        <ProjectReference Include="..\NETworkManager.Controls\NETworkManager.Controls.csproj" />
+        <ProjectReference Include="..\NETworkManager.Converters\NETworkManager.Converters.csproj" />
+        <ProjectReference Include="..\NETworkManager.Documentation\NETworkManager.Documentation.csproj" />
+        <ProjectReference Include="..\NETworkManager.Localization\NETworkManager.Localization.csproj" />
+        <ProjectReference Include="..\NETworkManager.Models\NETworkManager.Models.csproj" />
+        <ProjectReference Include="..\NETworkManager.Profiles\NETworkManager.Profiles.csproj" />
+        <ProjectReference Include="..\NETworkManager.Settings\NETworkManager.Settings.csproj" />
+        <ProjectReference Include="..\NETworkManager.Update\NETworkManager.Update.csproj" />
+        <ProjectReference Include="..\NETworkManager.Utilities.WPF\NETworkManager.Utilities.WPF.csproj" />
+        <ProjectReference Include="..\NETworkManager.Utilities\NETworkManager.Utilities.csproj" />
+        <ProjectReference Include="..\NETworkManager.Validators\NETworkManager.Validators.csproj" />
+    </ItemGroup>
+    <ItemGroup>
+        <Resource Include="NETworkManager.ico" />
+        <Resource Include="SplashScreen.png" />
+    </ItemGroup>
+    <ItemGroup>
+        <EmbeddedResource Include="Resources\Maps\world-map.json" />
+        <EmbeddedResource Include="Resources\Maps\world-cities.json" />
+    </ItemGroup>
+    <ItemGroup>
+        <Compile Update="Properties\Resources.Designer.cs">
+            <DesignTime>True</DesignTime>
+            <AutoGen>True</AutoGen>
+            <DependentUpon>Resources.resx</DependentUpon>
+        </Compile>
+    </ItemGroup>
+    <ItemGroup>
+        <EmbeddedResource Update="Properties\Resources.resx">
+            <Generator>PublicResXFileCodeGenerator</Generator>
+            <LastGenOutput>Resources.Designer.cs</LastGenOutput>
+        </EmbeddedResource>
+    </ItemGroup>
+    <ItemGroup>
+        <Page Update="Resources\Styles\MenuItemStyles.xaml">
+            <Generator>MSBuild:Compile</Generator>
+            <XamlRuntime>Wpf</XamlRuntime>
+            <SubType>Designer</SubType>
+        </Page>
+        <Page Update="Views\IPGeolocationHostView.xaml">
+            <Generator>MSBuild:Compile</Generator>
+            <XamlRuntime>Wpf</XamlRuntime>
+            <SubType>Designer</SubType>
+        </Page>
+        <Page Update="Views\IPGeolocationView.xaml">
+            <Generator>MSBuild:Compile</Generator>
+            <XamlRuntime>Wpf</XamlRuntime>
+            <SubType>Designer</SubType>
+        </Page>
+        <Page Update="Views\HostsFileEditorView.xaml">
+          <Generator>MSBuild:Compile</Generator>
+          <XamlRuntime>Wpf</XamlRuntime>
+          <SubType>Designer</SubType>
+        </Page>
+        <Page Update="Views\MessageConfirmationChildWindow.xaml">
+          <Generator>MSBuild:Compile</Generator>
+          <XamlRuntime>Wpf</XamlRuntime>
+          <SubType>Designer</SubType>
+        </Page>
+    </ItemGroup>
+    <Target Name="PreBuild" BeforeTargets="PreBuildEvent">
+        <Exec Command="PowerShell.exe -ExecutionPolicy Bypass -NoProfile -File &quot;$(ProjectDir)..\..\Scripts\PreBuildEventCommandLine.ps1&quot; &quot;$(TargetDir)&quot;" />
+    </Target>
+</Project>

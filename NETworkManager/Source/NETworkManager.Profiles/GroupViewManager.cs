@@ -1,0 +1,25 @@
+﻿using System.Collections.Generic;
+using NETworkManager.Controls;
+using NETworkManager.Models;
+
+namespace NETworkManager.Profiles;
+
+public static class GroupViewManager
+{
+    // List of all applications
+    public static List<GroupViewInfo> List =>
+    [
+        // General
+        new GroupViewInfo(GroupViewName.General, new LucideIcon { Kind = LucideIconKind.Box }),
+
+        // Applications
+        new GroupViewInfo(GroupViewName.IPScanner, ApplicationManager.GetIcon(ApplicationName.IPScanner)),
+        new GroupViewInfo(GroupViewName.PortScanner, ApplicationManager.GetIcon(ApplicationName.PortScanner)),
+        new GroupViewInfo(GroupViewName.DNSLookup, ApplicationManager.GetIcon(ApplicationName.DNSLookup)),
+        new GroupViewInfo(GroupViewName.RemoteDesktop, ApplicationManager.GetIcon(ApplicationName.RemoteDesktop)),
+        new GroupViewInfo(GroupViewName.PowerShell, ApplicationManager.GetIcon(ApplicationName.PowerShell)),
+        new GroupViewInfo(GroupViewName.PuTTY, ApplicationManager.GetIcon(ApplicationName.PuTTY)),
+        new GroupViewInfo(GroupViewName.TigerVNC, ApplicationManager.GetIcon(ApplicationName.TigerVNC)),
+        new GroupViewInfo(GroupViewName.SNMP, ApplicationManager.GetIcon(ApplicationName.SNMP))
+    ];
+}

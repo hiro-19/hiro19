@@ -1,0 +1,19 @@
+pull_request_rules:
+  - name: automatic merge for LGTM label and bot pull requests based on ci success
+    conditions:
+      - base=main
+      - or:
+        - label~=LGTM$
+        - author=dependabot[bot]
+        - author=transifex-integration[bot]
+        - author=imgbot[bot]
+      # Major updates can break at runtime even if the build succeeds - they are merged manually after testing
+      - dependabot-update-type!=version-update:semver-major
+      - check-success=continuous-integration/appveyor/pr
+      # Website changes (e.g. Dependabot npm updates) also need a successful website build
+      - or:
+        - -files~=^(Website/|\.github/workflows/deploy_website\.yml$)
+        - check-success=Build Website
+    actions:
+      merge:
+        method: squash

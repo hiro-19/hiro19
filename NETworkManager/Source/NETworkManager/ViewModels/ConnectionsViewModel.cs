@@ -1,0 +1,411 @@
+﻿using log4net;
+using MahApps.Metro.SimpleChildWindow;
+using NETworkManager.Localization;
+using NETworkManager.Localization.Resources;
+using NETworkManager.Models.Export;
+using NETworkManager.Models.Network;
+using NETworkManager.Settings;
+using NETworkManager.Utilities;
+using NETworkManager.Utilities.WPF;
+using NETworkManager.Views;
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.ComponentModel;
+using System.Linq;
+using System.Threading.Tasks;
+using System.Windows;
+using System.Windows.Data;
+using System.Windows.Input;
+using System.Windows.Threading;
+
+namespace NETworkManager.ViewModels;
+
+/// <summary>
+/// View model for the connections view.
+/// </summary>
+public class ConnectionsViewModel : ViewModelBase
+{
+    #region Contructor, load settings
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="ConnectionsViewModel"/> class.
+    /// </summary>
+    public ConnectionsViewModel()
+    {
+        _searchDelay = new SearchDelay(GlobalStaticConfiguration.SearchDispatcherTimerTimeSpan, ApplySearch);
+
+        _isLoading = true;
+
+        // Result view + search
+        ResultsView = CollectionViewSource.GetDefaultView(Results);
+
+        ((ListCollectionView)ResultsView).CustomSort = Comparer<ConnectionInfo>.Create((x, y) =>
+            IPAddressHelper.CompareIPAddresses(x.LocalIPAddress, y.LocalIPAddress));
+
+        ResultsView.Filter = o =>
+        {
+            if (string.IsNullOrEmpty(Search))
+                return true;
+
+            if (o is not ConnectionInfo info)
+                return false;
+
+            // Search by local/remote IP Address, local/remote Port, Protocol and State
+            return info.LocalIPAddress.ToString().IndexOf(Search, StringComparison.OrdinalIgnoreCase) > -1 ||
+                   info.LocalPort.ToString().IndexOf(Search, StringComparison.OrdinalIgnoreCase) > -1 ||
+                   info.RemoteIPAddress.ToString().IndexOf(Search, StringComparison.OrdinalIgnoreCase) > -1 ||
+                   info.RemoteHostname.IndexOf(Search, StringComparison.OrdinalIgnoreCase) > -1 ||
+                   info.RemotePort.ToString().IndexOf(Search, StringComparison.OrdinalIgnoreCase) > -1 ||
+                   info.Protocol.ToString().IndexOf(Search, StringComparison.OrdinalIgnoreCase) > -1 ||
+                   ResourceTranslator.Translate(ResourceIdentifier.TcpState, info.TcpState)
+                       .IndexOf(Search, StringComparison.OrdinalIgnoreCase) > -1 ||
+                   info.ProcessId.ToString().IndexOf(Search, StringComparison.OrdinalIgnoreCase) > -1 ||
+                   info.ProcessName.IndexOf(Search, StringComparison.OrdinalIgnoreCase) > -1 ||
+                   info.ProcessPath.IndexOf(Search, StringComparison.OrdinalIgnoreCase) > -1;
+        };
+
+        // Get connections
+        _ = Refresh(true);
+
+        // Auto refresh
+        _autoRefreshTimer = new AutoRefreshTimer(() => Refresh());
+
+        AutoRefreshTimes = CollectionViewSource.GetDefaultView(AutoRefreshTime.GetDefaults);
+        SelectedAutoRefreshTime = AutoRefreshTimes.SourceCollection.Cast<AutoRefreshTimeInfo>().FirstOrDefault(x =>
+            x.Value == SettingsManager.Current.Connections_AutoRefreshTime.Value &&
+            x.TimeUnit == SettingsManager.Current.Connections_AutoRefreshTime.TimeUnit);
+        AutoRefreshEnabled = SettingsManager.Current.Connections_AutoRefreshEnabled;
+
+        _isLoading = false;
+    }
+
+    #endregion
+
+    #region Variables
+
+    private static readonly ILog Log = LogManager.GetLogger(typeof(ConnectionsViewModel));
+
+    /// <summary>
+    /// Indicates whether the view model is loading.
+    /// </summary>
+    private readonly bool _isLoading;
+
+    /// <summary>
+    /// Refreshes the view automatically (see <see cref="AutoRefreshEnabled"/>).
+    /// </summary>
+    private readonly AutoRefreshTimer _autoRefreshTimer;
+
+    /// <summary>
+    /// Delays filtering while the user is typing (see <see cref="Search"/>), so a large list is not filtered on
+    /// every key press.
+    /// </summary>
+    private readonly SearchDelay _searchDelay;
+
+    /// <summary>
+    /// Gets or sets the search text.
+    /// </summary>
+    public string Search
+    {
+        get;
+        set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+
+            // Filter after a short delay while typing (see _searchDelay)
+            _searchDelay.Restart();
+
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// Gets or sets the collection of connection results.
+    /// </summary>
+    public ObservableCollection<ConnectionInfo> Results
+    {
+        get;
+        set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+        }
+    } = new();
+
+    /// <summary>
+    /// Gets the collection view for the connection results.
+    /// </summary>
+    public ICollectionView ResultsView { get; }
+
+    /// <summary>
+    /// Gets or sets the currently selected connection result.
+    /// </summary>
+    public ConnectionInfo SelectedResult
+    {
+        get;
+        set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// Gets or sets the list of selected connection results.
+    /// </summary>
+    public IList SelectedResults
+    {
+        get;
+        set
+        {
+            if (Equals(value, field))
+                return;
+
+            field = value;
+            OnPropertyChanged();
+        }
+    } = new ArrayList();
+
+    /// <summary>
+    /// Gets or sets a value indicating whether auto-refresh is enabled.
+    /// </summary>
+    public bool AutoRefreshEnabled
+    {
+        get;
+        set
+        {
+            if (value == field)
+                return;
+
+            if (!_isLoading)
+                SettingsManager.Current.Connections_AutoRefreshEnabled = value;
+
+            field = value;
+
+            _autoRefreshTimer.IsEnabled = value;
+
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// Gets the collection view for the auto-refresh times.
+    /// </summary>
+    public ICollectionView AutoRefreshTimes { get; }
+
+    /// <summary>
+    /// Gets or sets the selected auto-refresh time.
+    /// </summary>
+    public AutoRefreshTimeInfo SelectedAutoRefreshTime
+    {
+        get;
+        set
+        {
+            if (value == field)
+                return;
+
+            if (!_isLoading)
+                SettingsManager.Current.Connections_AutoRefreshTime = value;
+
+            field = value;
+
+            // Not in the list (e.g. a removed interval of an old settings file): the previous interval is kept
+            if (value != null)
+                _autoRefreshTimer.Interval = AutoRefreshTime.CalculateTimeSpan(value);
+
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether the view model is currently refreshing.
+    /// </summary>
+    public bool IsRefreshing
+    {
+        get;
+        set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// Gets the time of the last refresh, null before the first one (shown in the header).
+    /// </summary>
+    public DateTime? LastRefreshTime
+    {
+        get;
+        private set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// Gets the auto refresh, for the countdown in the header (see <see cref="AutoRefreshTimer.RemainingTime"/>).
+    /// </summary>
+    public AutoRefreshTimer AutoRefreshTimer => _autoRefreshTimer;
+
+    #endregion
+
+    #region ICommands & Actions
+
+    /// <summary>
+    /// Gets the command to refresh the connections.
+    /// </summary>
+    public ICommand RefreshCommand => new RelayCommand(parameter => { _ = RefreshAction(); }, Refresh_CanExecute);
+
+    /// <summary>
+    /// Checks if the refresh command can be executed.
+    /// </summary>
+    /// <param name="parameter">The command parameter.</param>
+    /// <returns><c>true</c> if the command can be executed; otherwise, <c>false</c>.</returns>
+    private bool Refresh_CanExecute(object parameter)
+    {
+        return !DialogHelper.IsAnyDialogOpen() &&
+               !IsRefreshing &&
+               !AutoRefreshEnabled;
+    }
+
+    /// <summary>
+    /// Action to refresh the connections.
+    /// </summary>
+    private async Task RefreshAction()
+    {
+        await Refresh();
+    }
+
+    /// <summary>
+    /// Gets the command to export the connections.
+    /// </summary>
+    public ICommand ExportCommand => new RelayCommand(parameter => { _ = ExportAction(); });
+
+    /// <summary>
+    /// Action to export the connections.
+    /// </summary>
+    private Task ExportAction()
+    {
+        var childWindow = new ExportChildWindow();
+
+        var childWindowViewModel = new ExportViewModel(async instance =>
+        {
+            childWindow.IsOpen = false;
+            ConfigurationManager.Current.IsChildWindowOpen = false;
+
+            try
+            {
+                // The rows shown in the grid (search / filter) in the order shown (sorting). Copied on the UI thread,
+                // exported in the background
+                var results = ResultsView.GetItemsInViewOrder<ConnectionInfo>(instance.ExportAll, SelectedResults);
+
+                await Task.Run(() => ExportManager.Export(instance.FilePath, instance.FileType, results));
+            }
+            catch (Exception ex)
+            {
+                Log.Error("Error while exporting data as " + instance.FileType, ex);
+
+                await DialogHelper.ShowMessageAsync(Application.Current.MainWindow, Strings.Error,
+                   Strings.AnErrorOccurredWhileExportingTheData + Environment.NewLine +
+                    Environment.NewLine + ex.Message, ChildWindowIcon.Error);
+            }
+
+            SettingsManager.Current.Connections_ExportFileType = instance.FileType;
+            SettingsManager.Current.Connections_ExportFilePath = instance.FilePath;
+        }, _ =>
+        {
+            childWindow.IsOpen = false;
+            ConfigurationManager.Current.IsChildWindowOpen = false;
+        },
+            [
+                ExportFileType.Csv, ExportFileType.Xml, ExportFileType.Json
+            ], true, SettingsManager.Current.Connections_ExportFileType,
+            SettingsManager.Current.Connections_ExportFilePath);
+
+        childWindow.Title = Strings.Export;
+
+        childWindow.DataContext = childWindowViewModel;
+
+        ConfigurationManager.Current.IsChildWindowOpen = true;
+
+        return Application.Current.MainWindow.ShowChildWindowAsync(childWindow);
+    }
+
+    #endregion
+
+    #region Methods
+
+    /// <summary>
+    /// Refreshes the connections.
+    /// </summary>
+    /// <param name="init">Indicates whether this is the initial refresh.</param>
+    private async Task Refresh(bool init = false)
+    {
+        IsRefreshing = true;
+
+
+        // The first load right away; a refresh takes at least the refresh interval (the refresh button can't be
+        // spammed), loading runs at the same time
+        var results = init
+            ? await Connection.GetActiveTcpConnectionsAsync()
+            : await TaskHelper.WithMinimumDurationAsync(() => Connection.GetActiveTcpConnectionsAsync(),
+                GlobalStaticConfiguration.ApplicationUIRefreshInterval);
+
+        Results.Clear();
+
+        results.ForEach(Results.Add);
+
+        LastRefreshTime = DateTime.Now;
+
+        IsRefreshing = false;
+    }
+
+    /// <summary>
+    /// Called when the view becomes visible.
+    /// </summary>
+    public void OnViewVisible()
+    {
+        _autoRefreshTimer.Resume();
+    }
+
+    /// <summary>
+    /// Called when the view is hidden.
+    /// </summary>
+    public void OnViewHide()
+    {
+        _autoRefreshTimer.Pause();
+    }
+
+    /// <summary>
+    /// Gets the command to filter right away (Enter in the search box, see
+    /// <see cref="NETworkManager.Utilities.WPF.SearchTextBoxHelper"/>).
+    /// </summary>
+    public ICommand ApplySearchCommand => _searchDelay.ApplyCommand;
+
+    /// <summary>
+    /// Filters with the current <see cref="Search"/> right away.
+    /// </summary>
+    private void ApplySearch()
+    {
+        ResultsView.Refresh();
+    }
+
+    #endregion
+}

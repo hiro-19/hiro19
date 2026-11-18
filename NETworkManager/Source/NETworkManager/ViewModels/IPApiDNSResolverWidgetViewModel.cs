@@ -1,0 +1,114 @@
+using System.Threading.Tasks;
+using System.Windows.Input;
+using NETworkManager.Models.IPApi;
+using NETworkManager.Settings;
+using NETworkManager.Utilities;
+
+namespace NETworkManager.ViewModels;
+
+/// <summary>
+/// View model for the IP API DNS resolver widget.
+/// </summary>
+public class IPApiDNSResolverWidgetViewModel : ViewModelBase
+{
+    #region Variables
+
+    /// <summary>
+    /// Gets or sets a value indicating whether the check is running.
+    /// </summary>
+    public bool IsRunning
+    {
+        get;
+        set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// Gets the result of the DNS resolver check.
+    /// </summary>
+    public DNSResolverResult Result
+    {
+        get;
+        private set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+        }
+    }
+
+    #endregion
+
+    #region Constructor, load settings
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="IPApiDNSResolverWidgetViewModel"/> class.
+    /// </summary>
+    public IPApiDNSResolverWidgetViewModel()
+    {
+        LoadSettings();
+        Check();
+    }
+
+    /// <summary>
+    /// Loads the settings.
+    /// </summary>
+    private void LoadSettings()
+    {
+
+    }
+
+    #endregion
+
+    #region ICommands & Actions
+
+    /// <summary>
+    /// Gets the command to check the DNS resolver.
+    /// </summary>
+    public ICommand CheckCommand => new RelayCommand(_ => Check(), _ => !IsRunning);
+
+    #endregion
+
+    #region Methods
+
+    /// <summary>
+    /// Checks the DNS resolver.
+    /// </summary>
+    private void Check()
+    {
+        _ = CheckAsync();
+    }
+
+    /// <summary>
+    /// Checks the DNS resolver asynchronously.
+    /// </summary>
+    private async Task CheckAsync()
+    {
+        // Check is disabled via settings
+        if (!SettingsManager.Current.Dashboard_CheckIPApiDNSResolver)
+            return;
+
+        IsRunning = true;
+        Result = null;
+
+        // Takes at least the refresh interval, so the reload animation is visible and the check can't be spammed -
+        // the request runs at the same time
+        Result = await TaskHelper.WithMinimumDurationAsync(
+            () => ScreenshotData.IsEnabled
+                ? Task.FromResult(ScreenshotData.CreateDNSResolverResult())
+                : DNSResolverService.GetInstance().GetDNSResolverAsync(),
+            GlobalStaticConfiguration.ApplicationUIRefreshInterval);
+
+        IsRunning = false;
+    }
+
+    #endregion
+}

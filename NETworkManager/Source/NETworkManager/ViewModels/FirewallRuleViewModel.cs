@@ -1,0 +1,399 @@
+using NETworkManager.Localization.Resources;
+using NETworkManager.Models;
+using NETworkManager.Models.Firewall;
+using NETworkManager.Settings;
+using NETworkManager.Utilities;
+using System;
+using System.Collections.Generic;
+using System.Windows.Forms;
+using System.Windows.Input;
+
+namespace NETworkManager.ViewModels;
+
+/// <summary>
+/// ViewModel for adding or editing a firewall rule in the FirewallRule dialog.
+/// </summary>
+public class FirewallRuleViewModel : ViewModelBase
+{
+    /// <summary>
+    /// Creates a new instance of <see cref="FirewallRuleViewModel"/> for adding, editing or
+    /// copying a firewall rule.
+    /// </summary>
+    /// <param name="okCommand">OK command to save the rule.</param>
+    /// <param name="cancelHandler">Cancel command to discard changes.</param>
+    /// <param name="entry">Existing rule to edit or copy. Ignored when adding a new rule.</param>
+    /// <param name="mode">Mode of the dialog (add, edit or copy).</param>
+    public FirewallRuleViewModel(Action<FirewallRuleViewModel> okCommand,
+        Action<FirewallRuleViewModel> cancelHandler, FirewallRule entry = null, EditMode mode = EditMode.Add)
+    {
+        OKCommand = new RelayCommand(_ => okCommand(this));
+        CancelCommand = new RelayCommand(_ => cancelHandler(this));
+
+        Mode = mode;
+        Entry = mode == EditMode.Add ? null : entry;
+
+        if (Entry == null)
+        {
+            IsEnabled = true;
+            Direction = FirewallRuleDirection.Inbound;
+            Action = FirewallRuleAction.Allow;
+            Protocol = FirewallProtocol.Any;
+            InterfaceType = FirewallInterfaceType.Any;
+            NetworkProfileDomain = true;
+            NetworkProfilePrivate = true;
+            NetworkProfilePublic = true;
+        }
+        else
+        {
+            Name = entry.Name;
+
+            if (mode == EditMode.Copy)
+                Name += " - " + Strings.CopyNoun;
+
+            IsEnabled = entry.IsEnabled;
+            Description = entry.Description ?? string.Empty;
+            Direction = entry.Direction;
+            Action = entry.Action;
+            Protocol = entry.Protocol;
+            LocalPorts = FirewallRule.PortsToString(entry.LocalPorts);
+            RemotePorts = FirewallRule.PortsToString(entry.RemotePorts);
+            LocalAddresses = entry.LocalAddresses.Count > 0 ? string.Join("; ", entry.LocalAddresses) : string.Empty;
+            RemoteAddresses = entry.RemoteAddresses.Count > 0 ? string.Join("; ", entry.RemoteAddresses) : string.Empty;
+            Program = entry.Program?.Name ?? string.Empty;
+            InterfaceType = entry.InterfaceType;
+            NetworkProfileDomain = entry.NetworkProfiles.Length > 0 && entry.NetworkProfiles[0];
+            NetworkProfilePrivate = entry.NetworkProfiles.Length > 1 && entry.NetworkProfiles[1];
+            NetworkProfilePublic = entry.NetworkProfiles.Length > 2 && entry.NetworkProfiles[2];
+        }
+    }
+
+    /// <summary>
+    /// OK command to save the rule.
+    /// </summary>
+    public ICommand OKCommand { get; }
+
+    /// <summary>
+    /// Cancel command to discard changes.
+    /// </summary>
+    public ICommand CancelCommand { get; }
+
+    /// <summary>
+    /// Command to select the <see cref="Program"/> with a file dialog.
+    /// </summary>
+    public ICommand BrowseFileCommand => new RelayCommand(_ => BrowseFileAction());
+
+    /// <summary>
+    /// Opens a file dialog to select the <see cref="Program"/> (executable) the rule applies to.
+    /// </summary>
+    private void BrowseFileAction()
+    {
+        var openFileDialog = new OpenFileDialog
+        {
+            Filter = GlobalStaticConfiguration.ApplicationFileExtensionFilter
+        };
+
+        if (openFileDialog.ShowDialog() == DialogResult.OK)
+            Program = openFileDialog.FileName;
+    }
+
+    /// <summary>
+    /// Mode of the dialog (add, edit or copy).
+    /// </summary>
+    public EditMode Mode { get; }
+
+    /// <summary>
+    /// The original firewall rule being edited (or the source rule when copying),
+    /// or <see langword="null"/> when adding a new rule.
+    /// </summary>
+    public FirewallRule Entry { get; }
+
+    /// <summary>
+    /// Protocols available in the protocol drop-down.
+    /// </summary>
+    public IEnumerable<FirewallProtocol> Protocols { get; } = FirewallRule.SupportedProtocols;
+
+    /// <summary>
+    /// Directions available in the direction drop-down.
+    /// </summary>
+    public IEnumerable<FirewallRuleDirection> Directions { get; } = Enum.GetValues<FirewallRuleDirection>();
+
+    /// <summary>
+    /// Actions available in the action drop-down.
+    /// </summary>
+    public IEnumerable<FirewallRuleAction> Actions { get; } = Enum.GetValues<FirewallRuleAction>();
+
+    /// <summary>
+    /// Interface types available in the interface type drop-down.
+    /// </summary>
+    public IEnumerable<FirewallInterfaceType> InterfaceTypes { get; } = Enum.GetValues<FirewallInterfaceType>();
+
+    /// <summary>
+    /// Human-readable display name of the rule (without the NETworkManager_ prefix).
+    /// </summary>
+    public string Name
+    {
+        get;
+        set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// Indicates whether the rule is enabled.
+    /// </summary>
+    public bool IsEnabled
+    {
+        get;
+        set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// Optional description of the rule.
+    /// </summary>
+    public string Description
+    {
+        get;
+        set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+        }
+    } = string.Empty;
+
+    /// <summary>
+    /// Traffic direction (Inbound or Outbound).
+    /// </summary>
+    public FirewallRuleDirection Direction
+    {
+        get;
+        set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// Rule action (Allow or Block).
+    /// </summary>
+    public FirewallRuleAction Action
+    {
+        get;
+        set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// Network protocol. When changed away from TCP/UDP, local and remote port fields are cleared.
+    /// </summary>
+    public FirewallProtocol Protocol
+    {
+        get;
+        set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+
+            if (value is not (FirewallProtocol.TCP or FirewallProtocol.UDP))
+            {
+                LocalPorts = string.Empty;
+                RemotePorts = string.Empty;
+            }
+
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(PortsVisible));
+        }
+    }
+
+    /// <summary>
+    /// <see langword="true"/> when the current protocol supports port filtering (TCP or UDP).
+    /// </summary>
+    public bool PortsVisible => Protocol is FirewallProtocol.TCP or FirewallProtocol.UDP;
+
+    /// <summary>
+    /// Semicolon-separated local port numbers or ranges (e.g. "80; 443; 8080-8090").
+    /// Only relevant when <see cref="Protocol"/> is TCP or UDP.
+    /// </summary>
+    public string LocalPorts
+    {
+        get;
+        set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+        }
+    } = string.Empty;
+
+    /// <summary>
+    /// Semicolon-separated remote port numbers or ranges.
+    /// Only relevant when <see cref="Protocol"/> is TCP or UDP.
+    /// </summary>
+    public string RemotePorts
+    {
+        get;
+        set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+        }
+    } = string.Empty;
+
+    /// <summary>
+    /// Semicolon-separated local addresses (IPs, CIDR subnets, or keywords such as LocalSubnet).
+    /// Empty means "Any".
+    /// </summary>
+    public string LocalAddresses
+    {
+        get;
+        set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+        }
+    } = string.Empty;
+
+    /// <summary>
+    /// Semicolon-separated remote addresses.
+    /// Empty means "Any".
+    /// </summary>
+    public string RemoteAddresses
+    {
+        get;
+        set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+        }
+    } = string.Empty;
+
+    /// <summary>
+    /// Full path to the executable this rule applies to. Empty means "Any program".
+    /// </summary>
+    public string Program
+    {
+        get;
+        set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+        }
+    } = string.Empty;
+
+    /// <summary>
+    /// Network interface type filter.
+    /// </summary>
+    public FirewallInterfaceType InterfaceType
+    {
+        get;
+        set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// Whether the rule applies to the Domain network profile.
+    /// </summary>
+    public bool NetworkProfileDomain
+    {
+        get;
+        set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(IsNetworkProfileDomainEnabled));
+            OnPropertyChanged(nameof(IsNetworkProfilePrivateEnabled));
+            OnPropertyChanged(nameof(IsNetworkProfilePublicEnabled));
+        }
+    }
+
+    /// <summary>
+    /// Whether the rule applies to the Private network profile.
+    /// </summary>
+    public bool NetworkProfilePrivate
+    {
+        get;
+        set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(IsNetworkProfileDomainEnabled));
+            OnPropertyChanged(nameof(IsNetworkProfilePrivateEnabled));
+            OnPropertyChanged(nameof(IsNetworkProfilePublicEnabled));
+        }
+    }
+
+    /// <summary>
+    /// Whether the rule applies to the Public network profile.
+    /// </summary>
+    public bool NetworkProfilePublic
+    {
+        get;
+        set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(IsNetworkProfileDomainEnabled));
+            OnPropertyChanged(nameof(IsNetworkProfilePrivateEnabled));
+            OnPropertyChanged(nameof(IsNetworkProfilePublicEnabled));
+        }
+    }
+
+    public bool IsNetworkProfileDomainEnabled => NetworkProfilePrivate || NetworkProfilePublic;
+    public bool IsNetworkProfilePrivateEnabled => NetworkProfileDomain || NetworkProfilePublic;
+    public bool IsNetworkProfilePublicEnabled => NetworkProfileDomain || NetworkProfilePrivate;
+}

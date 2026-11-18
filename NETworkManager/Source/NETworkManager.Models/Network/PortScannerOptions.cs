@@ -1,0 +1,73 @@
+﻿namespace NETworkManager.Models.Network;
+
+/// <summary>
+///     Class contains the options for the port scanner.
+/// </summary>
+public record PortScannerOptions
+{
+    /// <summary>
+    ///     Adjust the number of hosts and ports scanned at the same time to the scan (see
+    ///     <see cref="PortScanner" />) instead of using <see cref="MaxHostThreads" /> and <see cref="MaxPortThreads" />.
+    /// </summary>
+    public required bool AutoAdjustThreads { get; init; }
+
+    /// <summary>
+    ///     Max concurrent threads for the host scan (if the threads are not adjusted automatically).
+    /// </summary>
+    public required int MaxHostThreads { get; init; }
+
+    /// <summary>
+    ///     Max concurrent threads for the port scan of each host (if the threads are not adjusted automatically).
+    /// </summary>
+    public required int MaxPortThreads { get; init; }
+
+    /// <summary>
+    ///     Timeout in ms after which the port is considered closed.
+    /// </summary>
+    public required int Timeout { get; init; }
+
+    /// <summary>
+    ///     Number of attempts to connect to a port if there was no answer (timed out).
+    /// </summary>
+    public required int Attempts { get; init; }
+
+    /// <summary>
+    ///     Ping every host before its ports are scanned (with <see cref="ICMPAttempts" />, <see cref="ICMPTimeout" /> and
+    ///     <see cref="ICMPBufferSize" />), a host that doesn't answer is not scanned.
+    /// </summary>
+    public required bool PingHostsBeforeScan { get; init; }
+
+    /// <summary>
+    ///     Number of pings before the scan if there was no answer (see <see cref="PingHostsBeforeScan" />).
+    /// </summary>
+    public required int ICMPAttempts { get; init; }
+
+    /// <summary>
+    ///     Timeout in milliseconds after which a ping before the scan is considered lost (see
+    ///     <see cref="PingHostsBeforeScan" />).
+    /// </summary>
+    public required int ICMPTimeout { get; init; }
+
+    /// <summary>
+    ///     Size in bytes of the data sent with the ping before the scan (see <see cref="PingHostsBeforeScan" />). A size,
+    ///     not the buffer, so options with the same values are equal (records compare arrays by reference).
+    /// </summary>
+    public required int ICMPBufferSize { get; init; }
+
+    /// <summary>
+    ///     Resolve the hostname for an IP address.
+    /// </summary>
+    public required bool ResolveHostname { get; init; }
+
+    /// <summary>
+    ///     Include closed ports in the result.
+    /// </summary>
+    public required bool ShowAllResults { get; init; }
+
+    /// <summary>
+    ///     Ports that are reported in any state, also if <see cref="ShowAllResults" /> is disabled: the open ports of
+    ///     the previous scan, so a port that is no longer open has a row with its state (see
+    ///     <see cref="PortScannerScanComparer" />). Null for none.
+    /// </summary>
+    public System.Collections.Generic.IReadOnlySet<(System.Net.IPAddress IPAddress, int Port)> ReportPorts { get; init; }
+}

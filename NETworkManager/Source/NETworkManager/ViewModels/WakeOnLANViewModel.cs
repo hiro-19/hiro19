@@ -1,0 +1,285 @@
+using NETworkManager.Controls;
+using NETworkManager.Localization.Resources;
+using NETworkManager.Models;
+using NETworkManager.Models.Network;
+using NETworkManager.Profiles;
+using NETworkManager.Settings;
+using NETworkManager.Utilities;
+using System;
+using System.Collections.ObjectModel;
+using System.ComponentModel;
+using System.Linq;
+using System.Net;
+using System.Threading.Tasks;
+using System.Windows;
+using System.Windows.Data;
+using System.Windows.Input;
+
+namespace NETworkManager.ViewModels;
+
+/// <summary>
+/// ViewModel for the Wake on LAN feature.
+/// </summary>
+public class WakeOnLANViewModel : ProfileHostViewModelBase
+{
+    #region Variables
+
+    /// <summary>
+    /// Gets or sets a value indicating whether the Wake on LAN operation is running.
+    /// </summary>
+    public bool IsRunning
+    {
+        get;
+        set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// Gets the collection view for the MAC address history.
+    /// </summary>
+    public ICollectionView MACAddressHistoryView { get; }
+
+    /// <summary>
+    /// Gets or sets the MAC address to wake up.
+    /// </summary>
+    public string MACAddress
+    {
+        get;
+        set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// Gets the collection view for the broadcast address history.
+    /// </summary>
+    public ICollectionView BroadcastHistoryView { get; }
+
+    /// <summary>
+    /// Gets or sets the broadcast address.
+    /// </summary>
+    public string Broadcast
+    {
+        get;
+        set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether the status message is displayed.
+    /// </summary>
+    public bool IsStatusMessageDisplayed
+    {
+        get;
+        set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// Gets the status message to display.
+    /// </summary>
+    public string StatusMessage
+    {
+        get;
+        private set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    ///     Level of the status message (icon and color, see <see cref="StatusMessageText" />).
+    /// </summary>
+    public StatusLevel StatusMessageLevel
+    {
+        get;
+        private set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// Gets or sets the currently selected profile. Pre-fills <see cref="MACAddress"/>/<see cref="Broadcast"/>
+    /// from the profile, unless a wake-up is currently running.
+    /// </summary>
+    public override ProfileInfo SelectedProfile
+    {
+        get => base.SelectedProfile;
+        set
+        {
+            if (value == base.SelectedProfile)
+                return;
+
+            if (value != null && !IsRunning)
+            {
+                MACAddress = value.WakeOnLAN_MACAddress;
+                Broadcast = value.WakeOnLAN_Broadcast;
+            }
+
+            base.SelectedProfile = value;
+        }
+    }
+
+    #endregion
+
+    #region Constructor
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="WakeOnLANViewModel"/> class.
+    /// </summary>
+    public WakeOnLANViewModel()
+    {
+        MACAddressHistoryView =
+            CollectionViewSource.GetDefaultView(SettingsManager.Current.WakeOnLan_MACAddressHistory);
+        BroadcastHistoryView = CollectionViewSource.GetDefaultView(SettingsManager.Current.WakeOnLan_BroadcastHistory);
+
+        InitializeProfileHost();
+    }
+
+    #endregion
+
+    #region Profile host
+
+    protected override ApplicationName ApplicationName => ApplicationName.WakeOnLAN;
+
+    #endregion
+
+    #region ICommands & Actions
+
+    /// <summary>
+    /// Gets the command to wake up the target.
+    /// </summary>
+    public ICommand WakeUpCommand => new RelayCommand(_ => WakeUpAction(), WakeUpAction_CanExecute);
+
+    private bool WakeUpAction_CanExecute(object parameter)
+    {
+        return !DialogHelper.IsAnyDialogOpen();
+    }
+
+    private void WakeUpAction()
+    {
+        var info = new WakeOnLANInfo
+        {
+            MagicPacket = WakeOnLAN.CreateMagicPacket(MACAddress),
+            Broadcast = IPAddress.Parse(Broadcast),
+            Port = SettingsManager.Current.WakeOnLAN_Port
+        };
+
+        ListHelper.Modify(SettingsManager.Current.WakeOnLan_MACAddressHistory, MACAddress,
+            SettingsManager.Current.General_HistoryListEntries);
+        ListHelper.Modify(SettingsManager.Current.WakeOnLan_BroadcastHistory, Broadcast,
+            SettingsManager.Current.General_HistoryListEntries);
+
+        _ = WakeUp(info);
+    }
+
+    /// <summary>
+    /// Gets the command to wake up the selected profile.
+    /// </summary>
+    public ICommand WakeUpProfileCommand => new RelayCommand(_ => WakeUpProfileAction());
+
+    private void WakeUpProfileAction()
+    {
+        WakeUp(SelectedProfile);
+    }
+
+    #endregion
+
+    #region Methods
+
+    /// <summary>
+    ///     Sends the magic packet to the computer of the profile.
+    /// </summary>
+    /// <param name="profile">Profile to wake up.</param>
+    /// <param name="start">Sends the magic packet. If false, the values of the profile are only filled in.</param>
+    public void WakeUp(ProfileInfo profile, bool start = true)
+    {
+        if (!start)
+        {
+            MACAddress = profile.WakeOnLAN_MACAddress;
+            Broadcast = profile.WakeOnLAN_Broadcast;
+
+            return;
+        }
+
+        _ = WakeUp(NETworkManager.Profiles.Application.WakeOnLAN.CreateInfo(profile));
+    }
+
+    /// <summary>
+    ///     Sets the MAC address (and broadcast address) and sends the magic packet, if the broadcast address is valid
+    ///     (e.g. from a previous wake up). Otherwise, the values are only filled in.
+    /// </summary>
+    /// <param name="macAddress">MAC address of the computer.</param>
+    /// <param name="broadcast">Broadcast address. If null, the current broadcast address is used.</param>
+    /// <param name="start">Sends the magic packet. If false, the values are only filled in.</param>
+    public void WakeUp(string macAddress, string broadcast, bool start = true)
+    {
+        MACAddress = macAddress;
+
+        if (broadcast != null)
+            Broadcast = broadcast;
+
+        if (start && Broadcast != null && RegexHelper.IPv4AddressRegex().IsMatch(Broadcast))
+            WakeUpAction();
+    }
+
+    private async Task WakeUp(WakeOnLANInfo info)
+    {
+        IsStatusMessageDisplayed = false;
+        IsRunning = true;
+
+        try
+        {
+            WakeOnLAN.Send(info);
+
+            // Make the user happy, let him see a reload animation (and he cannot spam the reload command)
+            await Task.Delay(GlobalStaticConfiguration.ApplicationUIRefreshInterval);
+
+            StatusMessage = Strings.MagicPacketSentMessage;
+            StatusMessageLevel = StatusLevel.Success;
+            IsStatusMessageDisplayed = true;
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = ex.Message;
+            StatusMessageLevel = StatusLevel.Error;
+            IsStatusMessageDisplayed = true;
+        }
+
+        IsRunning = false;
+    }
+
+    #endregion
+}

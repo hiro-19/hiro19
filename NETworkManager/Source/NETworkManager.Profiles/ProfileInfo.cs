@@ -1,0 +1,663 @@
+﻿//using System.Collections.Generic;
+using DnsClient;
+using NETworkManager.Controls;
+using NETworkManager.Models;
+using NETworkManager.Models.Network;
+using NETworkManager.Models.PowerShell;
+using NETworkManager.Models.PuTTY;
+using NETworkManager.Models.RDAP;
+using NETworkManager.Models.RemoteDesktop;
+using NETworkManager.Settings;
+using System.Security;
+using System.Xml.Serialization;
+
+// ReSharper disable InconsistentNaming
+// ReSharper disable PropertyCanBeMadeInitOnly.Global
+// ReSharper disable UnusedAutoPropertyAccessor.Global
+
+namespace NETworkManager.Profiles;
+
+/// <summary>
+///     Class represents a profile.
+/// </summary>
+public class ProfileInfo
+{
+    /// <summary>
+    ///     Initializes a new instance of the<see cref="ProfileInfo" /> class.
+    /// </summary>
+    public ProfileInfo()
+    {
+    }
+
+    /// <summary>
+    ///     Initializes a new instance of the<see cref="ProfileInfo" /> class with properties.
+    /// </summary>
+    public ProfileInfo(ProfileInfo profile)
+    {
+        Name = profile.Name;
+        Host = profile.Host;
+        Description = profile.Description;
+        Group = profile.Group;
+        TagsCollection = profile.TagsCollection;
+        ImportSource = profile.ImportSource;
+        ImportSourceId = profile.ImportSourceId;
+
+        IsDynamic = profile.IsDynamic;
+
+        // Network Interface
+        NetworkInterface_Enabled = profile.NetworkInterface_Enabled;
+        NetworkInterface_EnableStaticIPAddress = profile.NetworkInterface_EnableStaticIPAddress;
+        NetworkInterface_IPAddress = profile.NetworkInterface_IPAddress;
+        NetworkInterface_Subnetmask = profile.NetworkInterface_Subnetmask;
+        NetworkInterface_Gateway = profile.NetworkInterface_Gateway;
+        NetworkInterface_EnableStaticDNS = profile.NetworkInterface_EnableStaticDNS;
+        NetworkInterface_PrimaryDNSServer = profile.NetworkInterface_PrimaryDNSServer;
+        NetworkInterface_SecondaryDNSServer = profile.NetworkInterface_SecondaryDNSServer;
+
+        // IP Scanner
+        IPScanner_Enabled = profile.IPScanner_Enabled;
+        IPScanner_InheritHost = profile.IPScanner_InheritHost;
+        IPScanner_HostOrIPRange = profile.IPScanner_HostOrIPRange;
+        IPScanner_OverrideSNMP = profile.IPScanner_OverrideSNMP;
+        IPScanner_SNMPVersion = profile.IPScanner_SNMPVersion;
+        IPScanner_SNMPCommunity = profile.IPScanner_SNMPCommunity;
+        IPScanner_SNMPSecurity = profile.IPScanner_SNMPSecurity;
+        IPScanner_SNMPUsername = profile.IPScanner_SNMPUsername;
+        IPScanner_SNMPAuthenticationProvider = profile.IPScanner_SNMPAuthenticationProvider;
+        IPScanner_SNMPAuth = profile.IPScanner_SNMPAuth;
+        IPScanner_SNMPPrivacyProvider = profile.IPScanner_SNMPPrivacyProvider;
+        IPScanner_SNMPPriv = profile.IPScanner_SNMPPriv;
+        IPScanner_UseWindowsCredentials = profile.IPScanner_UseWindowsCredentials;
+        IPScanner_WindowsUsername = profile.IPScanner_WindowsUsername;
+        IPScanner_WindowsDomain = profile.IPScanner_WindowsDomain;
+        IPScanner_WindowsPassword = profile.IPScanner_WindowsPassword;
+
+        // Port Scanner
+        PortScanner_Enabled = profile.PortScanner_Enabled;
+        PortScanner_InheritHost = profile.PortScanner_InheritHost;
+        PortScanner_Host = profile.PortScanner_Host;
+        PortScanner_OverridePorts = profile.PortScanner_OverridePorts;
+        PortScanner_Ports = profile.PortScanner_Ports;
+        PortScanner_PortsInput = profile.PortScanner_PortsInput;
+
+        // Ping Monitor
+        PingMonitor_Enabled = profile.PingMonitor_Enabled;
+        PingMonitor_InheritHost = profile.PingMonitor_InheritHost;
+        PingMonitor_Host = profile.PingMonitor_Host;
+
+        // Traceroute
+        Traceroute_Enabled = profile.Traceroute_Enabled;
+        Traceroute_InheritHost = profile.Traceroute_InheritHost;
+        Traceroute_Host = profile.Traceroute_Host;
+
+        // DNS Lookup
+        DNSLookup_Enabled = profile.DNSLookup_Enabled;
+        DNSLookup_InheritHost = profile.DNSLookup_InheritHost;
+        DNSLookup_Host = profile.DNSLookup_Host;
+        DNSLookup_OverrideDNSServer = profile.DNSLookup_OverrideDNSServer;
+        DNSLookup_DNSServer = profile.DNSLookup_DNSServer;
+        DNSLookup_DNSServerInput = profile.DNSLookup_DNSServerInput;
+        DNSLookup_OverrideQueryType = profile.DNSLookup_OverrideQueryType;
+        DNSLookup_QueryType = profile.DNSLookup_QueryType;
+
+        // Remote Desktop
+        RemoteDesktop_Enabled = profile.RemoteDesktop_Enabled;
+        RemoteDesktop_InheritHost = profile.RemoteDesktop_InheritHost;
+        RemoteDesktop_Host = profile.RemoteDesktop_Host;
+        RemoteDesktop_UseCredentials = profile.RemoteDesktop_UseCredentials;
+        RemoteDesktop_Username = profile.RemoteDesktop_Username;
+        RemoteDesktop_Domain = profile.RemoteDesktop_Domain;
+        RemoteDesktop_Password = profile.RemoteDesktop_Password;
+        RemoteDesktop_AdminSession = profile.RemoteDesktop_AdminSession;
+        RemoteDesktop_OverrideDisplay = profile.RemoteDesktop_OverrideDisplay;
+        RemoteDesktop_AdjustScreenAutomatically = profile.RemoteDesktop_AdjustScreenAutomatically;
+        RemoteDesktop_UseCurrentViewSize = profile.RemoteDesktop_UseCurrentViewSize;
+        RemoteDesktop_UseFixedScreenSize = profile.RemoteDesktop_UseFixedScreenSize;
+        RemoteDesktop_ScreenWidth = profile.RemoteDesktop_ScreenWidth;
+        RemoteDesktop_ScreenHeight = profile.RemoteDesktop_ScreenHeight;
+        RemoteDesktop_UseCustomScreenSize = profile.RemoteDesktop_UseCustomScreenSize;
+        RemoteDesktop_CustomScreenWidth = profile.RemoteDesktop_CustomScreenWidth;
+        RemoteDesktop_CustomScreenHeight = profile.RemoteDesktop_CustomScreenHeight;
+        RemoteDesktop_OverrideColorDepth = profile.RemoteDesktop_OverrideColorDepth;
+        RemoteDesktop_ColorDepth = profile.RemoteDesktop_ColorDepth;
+        RemoteDesktop_OverridePort = profile.RemoteDesktop_OverridePort;
+        RemoteDesktop_Port = profile.RemoteDesktop_Port;
+        RemoteDesktop_OverrideViewOnly = profile.RemoteDesktop_OverrideViewOnly;
+        RemoteDesktop_ViewOnly = profile.RemoteDesktop_ViewOnly;
+        RemoteDesktop_OverrideCredSspSupport = profile.RemoteDesktop_OverrideCredSspSupport;
+        RemoteDesktop_EnableCredSspSupport = profile.RemoteDesktop_EnableCredSspSupport;
+        RemoteDesktop_OverrideAuthenticationLevel = profile.RemoteDesktop_OverrideAuthenticationLevel;
+        RemoteDesktop_AuthenticationLevel = profile.RemoteDesktop_AuthenticationLevel;
+        RemoteDesktop_OverrideGatewayServer = profile.RemoteDesktop_OverrideGatewayServer;
+        RemoteDesktop_EnableGatewayServer = profile.RemoteDesktop_EnableGatewayServer;
+        RemoteDesktop_GatewayServerHostname = profile.RemoteDesktop_GatewayServerHostname;
+        RemoteDesktop_GatewayServerBypassLocalAddresses = profile.RemoteDesktop_GatewayServerBypassLocalAddresses;
+        RemoteDesktop_GatewayServerLogonMethod = profile.RemoteDesktop_GatewayServerLogonMethod;
+        RemoteDesktop_GatewayServerShareCredentialsWithRemoteComputer =
+            profile.RemoteDesktop_GatewayServerShareCredentialsWithRemoteComputer;
+        RemoteDesktop_UseGatewayServerCredentials = profile.RemoteDesktop_UseGatewayServerCredentials;
+        RemoteDesktop_GatewayServerUsername = profile.RemoteDesktop_GatewayServerUsername;
+        RemoteDesktop_GatewayServerDomain = profile.RemoteDesktop_GatewayServerDomain;
+        RemoteDesktop_GatewayServerPassword = profile.RemoteDesktop_GatewayServerPassword;
+        RemoteDesktop_OverrideAudioRedirectionMode = profile.RemoteDesktop_OverrideAudioRedirectionMode;
+        RemoteDesktop_AudioRedirectionMode = profile.RemoteDesktop_AudioRedirectionMode;
+        RemoteDesktop_OverrideAudioCaptureRedirectionMode = profile.RemoteDesktop_OverrideAudioCaptureRedirectionMode;
+        RemoteDesktop_AudioCaptureRedirectionMode = profile.RemoteDesktop_AudioCaptureRedirectionMode;
+        RemoteDesktop_OverrideApplyWindowsKeyCombinations = profile.RemoteDesktop_OverrideApplyWindowsKeyCombinations;
+        RemoteDesktop_KeyboardHookMode = profile.RemoteDesktop_KeyboardHookMode;
+        RemoteDesktop_OverrideRedirectClipboard = profile.RemoteDesktop_OverrideRedirectClipboard;
+        RemoteDesktop_RedirectClipboard = profile.RemoteDesktop_RedirectClipboard;
+        RemoteDesktop_OverrideRedirectDevices = profile.RemoteDesktop_OverrideRedirectDevices;
+        RemoteDesktop_RedirectDevices = profile.RemoteDesktop_RedirectDevices;
+        RemoteDesktop_OverrideRedirectDrives = profile.RemoteDesktop_OverrideRedirectDrives;
+        RemoteDesktop_RedirectDrives = profile.RemoteDesktop_RedirectDrives;
+        RemoteDesktop_OverrideRedirectPorts = profile.RemoteDesktop_OverrideRedirectPorts;
+        RemoteDesktop_RedirectPorts = profile.RemoteDesktop_RedirectPorts;
+        RemoteDesktop_OverrideRedirectSmartcards = profile.RemoteDesktop_OverrideRedirectSmartcards;
+        RemoteDesktop_RedirectSmartCards = profile.RemoteDesktop_RedirectSmartCards;
+        RemoteDesktop_OverrideRedirectPrinters = profile.RemoteDesktop_OverrideRedirectPrinters;
+        RemoteDesktop_RedirectPrinters = profile.RemoteDesktop_RedirectPrinters;
+        RemoteDesktop_OverridePersistentBitmapCaching = profile.RemoteDesktop_OverridePersistentBitmapCaching;
+        RemoteDesktop_PersistentBitmapCaching = profile.RemoteDesktop_PersistentBitmapCaching;
+        RemoteDesktop_OverrideReconnectIfTheConnectionIsDropped =
+            profile.RemoteDesktop_OverrideReconnectIfTheConnectionIsDropped;
+        RemoteDesktop_ReconnectIfTheConnectionIsDropped = profile.RemoteDesktop_ReconnectIfTheConnectionIsDropped;
+        RemoteDesktop_OverrideNetworkConnectionType = profile.RemoteDesktop_OverrideNetworkConnectionType;
+        RemoteDesktop_NetworkConnectionType = profile.RemoteDesktop_NetworkConnectionType;
+        RemoteDesktop_OverrideDesktopBackground = profile.RemoteDesktop_OverrideDesktopBackground;
+        RemoteDesktop_DesktopBackground = profile.RemoteDesktop_DesktopBackground;
+        RemoteDesktop_OverrideFontSmoothing = profile.RemoteDesktop_OverrideFontSmoothing;
+        RemoteDesktop_FontSmoothing = profile.RemoteDesktop_FontSmoothing;
+        RemoteDesktop_OverrideDesktopComposition = profile.RemoteDesktop_OverrideDesktopComposition;
+        RemoteDesktop_DesktopComposition = profile.RemoteDesktop_DesktopComposition;
+        RemoteDesktop_OverrideShowWindowContentsWhileDragging =
+            profile.RemoteDesktop_OverrideShowWindowContentsWhileDragging;
+        RemoteDesktop_ShowWindowContentsWhileDragging = profile.RemoteDesktop_ShowWindowContentsWhileDragging;
+        RemoteDesktop_OverrideMenuAndWindowAnimation = profile.RemoteDesktop_OverrideMenuAndWindowAnimation;
+        RemoteDesktop_MenuAndWindowAnimation = profile.RemoteDesktop_MenuAndWindowAnimation;
+        RemoteDesktop_OverrideVisualStyles = profile.RemoteDesktop_OverrideVisualStyles;
+        RemoteDesktop_VisualStyles = profile.RemoteDesktop_VisualStyles;
+
+        // PowerShell
+        PowerShell_Enabled = profile.PowerShell_Enabled;
+        PowerShell_EnableRemoteConsole = profile.PowerShell_EnableRemoteConsole;
+        PowerShell_InheritHost = profile.PowerShell_InheritHost;
+        PowerShell_Host = profile.PowerShell_Host;
+        PowerShell_OverrideCommand = profile.PowerShell_OverrideCommand;
+        PowerShell_Command = profile.PowerShell_Command;
+        PowerShell_OverrideAdditionalCommandLine = profile.PowerShell_OverrideAdditionalCommandLine;
+        PowerShell_AdditionalCommandLine = profile.PowerShell_AdditionalCommandLine;
+        PowerShell_OverrideExecutionPolicy = profile.PowerShell_OverrideExecutionPolicy;
+        PowerShell_ExecutionPolicy = profile.PowerShell_ExecutionPolicy;
+
+        // PuTTY
+        PuTTY_Enabled = profile.PuTTY_Enabled;
+        PuTTY_ConnectionMode = profile.PuTTY_ConnectionMode;
+        PuTTY_InheritHost = profile.PuTTY_InheritHost;
+        PuTTY_HostOrSerialLine = profile.PuTTY_HostOrSerialLine;
+        PuTTY_OverridePortOrBaud = profile.PuTTY_OverridePortOrBaud;
+        PuTTY_PortOrBaud = profile.PuTTY_PortOrBaud;
+        PuTTY_OverrideUsername = profile.PuTTY_OverrideUsername;
+        PuTTY_Username = profile.PuTTY_Username;
+        PuTTY_OverridePrivateKeyFile = profile.PuTTY_OverridePrivateKeyFile;
+        PuTTY_PrivateKeyFile = profile.PuTTY_PrivateKeyFile;
+        PuTTY_OverrideProfile = profile.PuTTY_OverrideProfile;
+        PuTTY_Profile = profile.PuTTY_Profile;
+        PuTTY_OverrideHostkey = profile.PuTTY_OverrideHostkey;
+        PuTTY_Hostkey = profile.PuTTY_Hostkey;
+        PuTTY_OverrideEnableLog = profile.PuTTY_OverrideEnableLog;
+        PuTTY_EnableLog = profile.PuTTY_EnableLog;
+        PuTTY_OverrideLogMode = profile.PuTTY_OverrideLogMode;
+        PuTTY_LogMode = profile.PuTTY_LogMode;
+        PuTTY_OverrideLogPath = profile.PuTTY_OverrideLogPath;
+        PuTTY_LogPath = profile.PuTTY_LogPath;
+        PuTTY_OverrideLogFileName = profile.PuTTY_OverrideLogFileName;
+        PuTTY_LogFileName = profile.PuTTY_LogFileName;
+        PuTTY_OverrideAdditionalCommandLine = profile.PuTTY_OverrideAdditionalCommandLine;
+        PuTTY_AdditionalCommandLine = profile.PuTTY_AdditionalCommandLine;
+
+        // TigerVNC
+        TigerVNC_Enabled = profile.TigerVNC_Enabled;
+        TigerVNC_InheritHost = profile.TigerVNC_InheritHost;
+        TigerVNC_Host = profile.TigerVNC_Host;
+        TigerVNC_OverridePort = profile.TigerVNC_OverridePort;
+        TigerVNC_Port = profile.TigerVNC_Port;
+
+        // WebConsole
+        WebConsole_Enabled = profile.WebConsole_Enabled;
+        WebConsole_Url = profile.WebConsole_Url;
+
+        // SNMP
+        SNMP_Enabled = profile.SNMP_Enabled;
+        SNMP_InheritHost = profile.SNMP_InheritHost;
+        SNMP_Host = profile.SNMP_Host;
+        SNMP_OverrideOIDAndMode = profile.SNMP_OverrideOIDAndMode;
+        SNMP_OID = profile.SNMP_OID;
+        SNMP_Mode = profile.SNMP_Mode;
+        SNMP_OverrideVersionAndAuth = profile.SNMP_OverrideVersionAndAuth;
+        SNMP_Version = profile.SNMP_Version;
+        SNMP_Community = profile.SNMP_Community;
+        SNMP_Security = profile.SNMP_Security;
+        SNMP_Username = profile.SNMP_Username;
+        SNMP_AuthenticationProvider = profile.SNMP_AuthenticationProvider;
+        SNMP_Auth = profile.SNMP_Auth;
+        SNMP_PrivacyProvider = profile.SNMP_PrivacyProvider;
+        SNMP_Priv = profile.SNMP_Priv;
+
+        // Wake on LAN
+        WakeOnLAN_Enabled = profile.WakeOnLAN_Enabled;
+        WakeOnLAN_MACAddress = profile.WakeOnLAN_MACAddress;
+        WakeOnLAN_Broadcast = profile.WakeOnLAN_Broadcast;
+
+        // RDAP
+        RDAP_Enabled = profile.RDAP_Enabled;
+        RDAP_InheritHost = profile.RDAP_InheritHost;
+        RDAP_Query = profile.RDAP_Query;
+        RDAP_QueryType = profile.RDAP_QueryType;
+
+        // Whois
+        Whois_Enabled = profile.Whois_Enabled;
+        Whois_InheritHost = profile.Whois_InheritHost;
+        Whois_Domain = profile.Whois_Domain;
+
+        // IP Geolocation
+        IPGeolocation_Enabled = profile.IPGeolocation_Enabled;
+        IPGeolocation_InheritHost = profile.IPGeolocation_InheritHost;
+        IPGeolocation_Host = profile.IPGeolocation_Host;
+    }
+
+    /// <summary>
+    ///     Name of the profile.
+    /// </summary>
+    public string Name { get; set; }
+
+    /// <summary>
+    ///     Hostname or IP address of the host.
+    /// </summary>
+    public string Host { get; set; }
+
+    /// <summary>
+    ///     Description of the profile.
+    /// </summary>
+    public string Description { get; set; }
+
+    /// <summary>
+    ///     Name of the group. Profiles are grouped based on the name.
+    /// </summary>
+    public string Group { get; set; }
+
+    /// <summary>
+    ///     Tags to classify the profiles and to filter by it.
+    /// </summary>
+    //[Obsolete("Replaced with TagsList")]
+    public string Tags { get; set; }
+
+    /// <summary>
+    /// Tags collection to classify the profiles and to filter by it.
+    /// </summary>
+    public ObservableSetCollection<string> TagsCollection { get; set; } = [];
+
+    /// <summary>
+    ///     Import method identifier (e.g. "ActiveDirectory"). Used together with <see cref="ImportSourceId"/>
+    ///     for duplicate detection on re-import. Null if the profile was not created by an import.
+    /// </summary>
+    public ProfileImportSource ImportSource { get; set; }
+
+    /// <summary>
+    ///     Stable ID within the import source (e.g. AD objectGUID).
+    ///     Null if not applicable or not from an import.
+    /// </summary>
+    public string ImportSourceId { get; set; }
+
+    /// <summary>
+    ///     Dynamic profiles (e.g. AWS) are not save to file.
+    /// </summary>
+    [XmlIgnore]
+    public bool IsDynamic { get; set; }
+
+    public bool NetworkInterface_Enabled { get; set; }
+    public bool NetworkInterface_EnableStaticIPAddress { get; set; }
+    public string NetworkInterface_IPAddress { get; set; }
+    public string NetworkInterface_Subnetmask { get; set; }
+    public string NetworkInterface_Gateway { get; set; }
+    public bool NetworkInterface_EnableStaticDNS { get; set; }
+    public string NetworkInterface_PrimaryDNSServer { get; set; }
+    public string NetworkInterface_SecondaryDNSServer { get; set; }
+
+    public bool IPScanner_Enabled { get; set; }
+    public bool IPScanner_InheritHost { get; set; } = true;
+    public string IPScanner_HostOrIPRange { get; set; }
+
+    /// <summary>
+    ///     Use the SNMP version and credentials below for the IP Scanner instead of the settings (a profile before its
+    ///     group), see <see cref="Application.IPScanner.GetSNMPCredentials" />.
+    /// </summary>
+    public bool IPScanner_OverrideSNMP { get; set; }
+
+    public SNMPVersion IPScanner_SNMPVersion { get; set; } = GlobalStaticConfiguration.IPScanner_SNMPVersion;
+    [XmlIgnore] public SecureString IPScanner_SNMPCommunity { get; set; }
+    public SNMPV3Security IPScanner_SNMPSecurity { get; set; } = GlobalStaticConfiguration.SNMP_Security;
+    public string IPScanner_SNMPUsername { get; set; }
+
+    public SNMPV3AuthenticationProvider IPScanner_SNMPAuthenticationProvider { get; set; } =
+        GlobalStaticConfiguration.SNMP_AuthenticationProvider;
+
+    [XmlIgnore] public SecureString IPScanner_SNMPAuth { get; set; }
+
+    public SNMPV3PrivacyProvider IPScanner_SNMPPrivacyProvider { get; set; } =
+        GlobalStaticConfiguration.SNMP_PrivacyProvider;
+
+    [XmlIgnore] public SecureString IPScanner_SNMPPriv { get; set; }
+
+    /// <summary>
+    ///     Use the Windows credentials below for the Windows host information of the IP Scanner instead of the user
+    ///     running the application (a profile before its group), see
+    ///     <see cref="Application.IPScanner.GetWindowsCredentials" />.
+    /// </summary>
+    public bool IPScanner_UseWindowsCredentials { get; set; }
+
+    public string IPScanner_WindowsUsername { get; set; }
+    public string IPScanner_WindowsDomain { get; set; }
+    [XmlIgnore] public SecureString IPScanner_WindowsPassword { get; set; }
+
+    public bool PortScanner_Enabled { get; set; }
+    public bool PortScanner_InheritHost { get; set; } = true;
+    public string PortScanner_Host { get; set; }
+
+    /// <summary>
+    ///     Use <see cref="PortScanner_Ports" /> of the profile instead of the ports of the group.
+    /// </summary>
+    public bool PortScanner_OverridePorts { get; set; }
+
+    /// <summary>
+    ///     Ports to scan (ports and port ranges). If port profiles were entered, their ports at the time the profile was
+    ///     saved - used if a port profile of <see cref="PortScanner_PortsInput" /> can't be found (e.g. a profile file
+    ///     from another computer, port profiles are saved in the settings).
+    /// </summary>
+    public string PortScanner_Ports { get; set; }
+
+    /// <summary>
+    ///     Ports as entered, if they contain port profiles: port profiles are referenced by their ID (e.g.
+    ///     "{8f1c...}; 8080", see <c>PortProfile.EncodeReferences</c>), so they are also found after a rename. Null if no
+    ///     port profile was entered.
+    /// </summary>
+    public string PortScanner_PortsInput { get; set; }
+
+    public bool PingMonitor_Enabled { get; set; }
+    public bool PingMonitor_InheritHost { get; set; } = true;
+    public string PingMonitor_Host { get; set; }
+
+    public bool Traceroute_Enabled { get; set; }
+    public bool Traceroute_InheritHost { get; set; } = true;
+    public string Traceroute_Host { get; set; }
+
+    public bool DNSLookup_Enabled { get; set; }
+    public bool DNSLookup_InheritHost { get; set; } = true;
+    public string DNSLookup_Host { get; set; }
+
+    /// <summary>
+    ///     Use the DNS server of the profile instead of the DNS server selected in DNS Lookup.
+    /// </summary>
+    public bool DNSLookup_OverrideDNSServer { get; set; }
+
+    /// <summary>
+    ///     DNS server of the profile (names of DNS servers and / or DNS servers). If DNS servers were entered by name,
+    ///     their servers at the time the profile was saved - used if a DNS server of
+    ///     <see cref="DNSLookup_DNSServerInput" /> can't be found (e.g. a profile file from another computer, DNS servers
+    ///     are saved in the settings).
+    /// </summary>
+    public string DNSLookup_DNSServer { get; set; }
+
+    /// <summary>
+    ///     DNS server as entered, if it contains DNS servers by name: they are referenced by their ID (e.g. "{8f1c...};
+    ///     9.9.9.9", see <c>DNSServer.EncodeReferences</c>), so they are also found after a rename. Null if no DNS
+    ///     server was entered by name.
+    /// </summary>
+    public string DNSLookup_DNSServerInput { get; set; }
+
+    /// <summary>
+    ///     Use <see cref="DNSLookup_QueryType" /> instead of the automatic type (PTR for IP addresses, otherwise A).
+    /// </summary>
+    public bool DNSLookup_OverrideQueryType { get; set; }
+
+    public QueryType DNSLookup_QueryType { get; set; } = QueryType.A;
+
+    public bool RemoteDesktop_Enabled { get; set; }
+    public bool RemoteDesktop_InheritHost { get; set; } = true;
+    public string RemoteDesktop_Host { get; set; }
+    public bool RemoteDesktop_UseCredentials { get; set; }
+    public string RemoteDesktop_Username { get; set; }
+    public string RemoteDesktop_Domain { get; set; }
+
+    [XmlIgnore] public SecureString RemoteDesktop_Password { get; set; }
+
+    public bool RemoteDesktop_AdminSession { get; set; }
+    public bool RemoteDesktop_OverrideDisplay { get; set; }
+    public bool RemoteDesktop_AdjustScreenAutomatically { get; set; }
+
+    public bool RemoteDesktop_UseCurrentViewSize { get; set; } =
+        GlobalStaticConfiguration.RemoteDesktop_UseCurrentViewSize;
+
+    public bool RemoteDesktop_UseFixedScreenSize { get; set; }
+    public int RemoteDesktop_ScreenWidth { get; set; } = GlobalStaticConfiguration.RemoteDesktop_ScreenWidth;
+    public int RemoteDesktop_ScreenHeight { get; set; } = GlobalStaticConfiguration.RemoteDesktop_ScreenHeight;
+    public bool RemoteDesktop_UseCustomScreenSize { get; set; }
+    public int RemoteDesktop_CustomScreenWidth { get; set; }
+    public int RemoteDesktop_CustomScreenHeight { get; set; }
+    public bool RemoteDesktop_OverrideColorDepth { get; set; }
+    public int RemoteDesktop_ColorDepth { get; set; } = GlobalStaticConfiguration.RemoteDesktop_ColorDepth;
+    public bool RemoteDesktop_OverridePort { get; set; }
+    public int RemoteDesktop_Port { get; set; } = GlobalStaticConfiguration.RemoteDesktop_Port;
+    public bool RemoteDesktop_OverrideViewOnly { get; set; }
+    public bool RemoteDesktop_ViewOnly { get; set; } = GlobalStaticConfiguration.RemoteDesktop_ViewOnly;
+    public bool RemoteDesktop_OverrideCredSspSupport { get; set; }
+    public bool RemoteDesktop_EnableCredSspSupport { get; set; }
+    public bool RemoteDesktop_OverrideAuthenticationLevel { get; set; }
+
+    public uint RemoteDesktop_AuthenticationLevel { get; set; } =
+        GlobalStaticConfiguration.RemoteDesktop_AuthenticationLevel;
+
+    public bool RemoteDesktop_OverrideGatewayServer { get; set; }
+    public bool RemoteDesktop_EnableGatewayServer { get; set; }
+    public string RemoteDesktop_GatewayServerHostname { get; set; }
+
+    public bool RemoteDesktop_GatewayServerBypassLocalAddresses { get; set; } =
+        GlobalStaticConfiguration.RemoteDesktop_GatewayServerBypassLocalAddresses;
+
+    public GatewayUserSelectedCredsSource RemoteDesktop_GatewayServerLogonMethod { get; set; } =
+        GlobalStaticConfiguration.RemoteDesktop_GatewayServerLogonMethod;
+
+    public bool RemoteDesktop_GatewayServerShareCredentialsWithRemoteComputer { get; set; } =
+        GlobalStaticConfiguration.RemoteDesktop_GatewayServerShareCredentialsWithRemoteComputer;
+
+    public bool RemoteDesktop_UseGatewayServerCredentials { get; set; }
+    public string RemoteDesktop_GatewayServerUsername { get; set; }
+    public string RemoteDesktop_GatewayServerDomain { get; set; }
+
+    [XmlIgnore] public SecureString RemoteDesktop_GatewayServerPassword { get; set; }
+    public bool RemoteDesktop_OverrideAudioRedirectionMode { get; set; }
+
+    public AudioRedirectionMode RemoteDesktop_AudioRedirectionMode { get; set; } =
+        GlobalStaticConfiguration.RemoteDesktop_AudioRedirectionMode;
+
+    public bool RemoteDesktop_OverrideAudioCaptureRedirectionMode { get; set; }
+
+    public AudioCaptureRedirectionMode RemoteDesktop_AudioCaptureRedirectionMode { get; set; } =
+        GlobalStaticConfiguration.RemoteDesktop_AudioCaptureRedirectionMode;
+
+    public bool RemoteDesktop_OverrideApplyWindowsKeyCombinations { get; set; }
+
+    public KeyboardHookMode RemoteDesktop_KeyboardHookMode { get; set; } =
+        GlobalStaticConfiguration.RemoteDesktop_KeyboardHookMode;
+
+    public bool RemoteDesktop_OverrideRedirectClipboard { get; set; }
+    public bool RemoteDesktop_RedirectClipboard { get; set; } = true;
+    public bool RemoteDesktop_OverrideRedirectDevices { get; set; }
+    public bool RemoteDesktop_RedirectDevices { get; set; }
+    public bool RemoteDesktop_OverrideRedirectDrives { get; set; }
+    public bool RemoteDesktop_RedirectDrives { get; set; }
+    public bool RemoteDesktop_OverrideRedirectPorts { get; set; }
+    public bool RemoteDesktop_RedirectPorts { get; set; }
+    public bool RemoteDesktop_OverrideRedirectSmartcards { get; set; }
+    public bool RemoteDesktop_RedirectSmartCards { get; set; }
+    public bool RemoteDesktop_OverrideRedirectPrinters { get; set; }
+    public bool RemoteDesktop_RedirectPrinters { get; set; }
+    public bool RemoteDesktop_OverridePersistentBitmapCaching { get; set; }
+    public bool RemoteDesktop_PersistentBitmapCaching { get; set; }
+    public bool RemoteDesktop_OverrideReconnectIfTheConnectionIsDropped { get; set; }
+    public bool RemoteDesktop_ReconnectIfTheConnectionIsDropped { get; set; }
+    public bool RemoteDesktop_OverrideNetworkConnectionType { get; set; }
+    public NetworkConnectionType RemoteDesktop_NetworkConnectionType { get; set; }
+    public bool RemoteDesktop_OverrideDesktopBackground { get; set; }
+    public bool RemoteDesktop_DesktopBackground { get; set; }
+    public bool RemoteDesktop_OverrideFontSmoothing { get; set; }
+    public bool RemoteDesktop_FontSmoothing { get; set; }
+    public bool RemoteDesktop_OverrideDesktopComposition { get; set; }
+    public bool RemoteDesktop_DesktopComposition { get; set; }
+    public bool RemoteDesktop_OverrideShowWindowContentsWhileDragging { get; set; }
+    public bool RemoteDesktop_ShowWindowContentsWhileDragging { get; set; }
+    public bool RemoteDesktop_OverrideMenuAndWindowAnimation { get; set; }
+    public bool RemoteDesktop_MenuAndWindowAnimation { get; set; }
+    public bool RemoteDesktop_OverrideVisualStyles { get; set; }
+    public bool RemoteDesktop_VisualStyles { get; set; }
+
+    public bool PowerShell_Enabled { get; set; }
+    public bool PowerShell_EnableRemoteConsole { get; set; } = true;
+    public bool PowerShell_InheritHost { get; set; } = true;
+    public string PowerShell_Host { get; set; }
+    public bool PowerShell_OverrideCommand { get; set; }
+    public string PowerShell_Command { get; set; }
+    public bool PowerShell_OverrideAdditionalCommandLine { get; set; }
+    public string PowerShell_AdditionalCommandLine { get; set; }
+    public bool PowerShell_OverrideExecutionPolicy { get; set; }
+
+    public ExecutionPolicy PowerShell_ExecutionPolicy { get; set; } =
+        GlobalStaticConfiguration.PowerShell_ExecutionPolicy;
+
+    public bool PuTTY_Enabled { get; set; }
+    public ConnectionMode PuTTY_ConnectionMode { get; set; }
+    public bool PuTTY_InheritHost { get; set; } = true;
+    public string PuTTY_HostOrSerialLine { get; set; }
+    public bool PuTTY_OverridePortOrBaud { get; set; }
+    public int PuTTY_PortOrBaud { get; set; }
+    public bool PuTTY_OverrideUsername { get; set; }
+    public string PuTTY_Username { get; set; }
+    public bool PuTTY_OverridePrivateKeyFile { get; set; }
+    public string PuTTY_PrivateKeyFile { get; set; }
+    public bool PuTTY_OverrideProfile { get; set; }
+    public string PuTTY_Profile { get; set; }
+    public bool PuTTY_OverrideHostkey { get; set; }
+    public string PuTTY_Hostkey { get; set; }
+    public bool PuTTY_OverrideEnableLog { get; set; }
+    public bool PuTTY_EnableLog { get; set; }
+    public bool PuTTY_OverrideLogMode { get; set; }
+    public LogMode PuTTY_LogMode { get; set; } = GlobalStaticConfiguration.PuTTY_LogMode;
+    public bool PuTTY_OverrideLogPath { get; set; }
+    public string PuTTY_LogPath { get; set; } = GlobalStaticConfiguration.PuTTY_LogPath;
+    public bool PuTTY_OverrideLogFileName { get; set; }
+    public string PuTTY_LogFileName { get; set; } = GlobalStaticConfiguration.PuTTY_LogFileName;
+    public bool PuTTY_OverrideAdditionalCommandLine { get; set; }
+    public string PuTTY_AdditionalCommandLine { get; set; }
+
+    public bool TigerVNC_Enabled { get; set; }
+    public bool TigerVNC_InheritHost { get; set; } = true;
+    public string TigerVNC_Host { get; set; }
+    public bool TigerVNC_OverridePort { get; set; }
+    public int TigerVNC_Port { get; set; } = GlobalStaticConfiguration.TigerVNC_DefaultVNCPort;
+
+    public bool WebConsole_Enabled { get; set; }
+    public string WebConsole_Url { get; set; } = "https://{{Host}}";
+
+    public bool SNMP_Enabled { get; set; }
+    public bool SNMP_InheritHost { get; set; } = true;
+    public string SNMP_Host { get; set; }
+    public bool SNMP_OverrideOIDAndMode { get; set; }
+    public string SNMP_OID { get; set; }
+    public SNMPMode SNMP_Mode { get; set; } = GlobalStaticConfiguration.SNMP_Mode;
+    public bool SNMP_OverrideVersionAndAuth { get; set; }
+    public SNMPVersion SNMP_Version { get; set; } = GlobalStaticConfiguration.SNMP_Version;
+    [XmlIgnore] public SecureString SNMP_Community { get; set; }
+    public SNMPV3Security SNMP_Security { get; set; } = GlobalStaticConfiguration.SNMP_Security;
+    public string SNMP_Username { get; set; }
+
+    public SNMPV3AuthenticationProvider SNMP_AuthenticationProvider { get; set; } =
+        GlobalStaticConfiguration.SNMP_AuthenticationProvider;
+
+    [XmlIgnore] public SecureString SNMP_Auth { get; set; }
+    public SNMPV3PrivacyProvider SNMP_PrivacyProvider { get; set; } = GlobalStaticConfiguration.SNMP_PrivacyProvider;
+    [XmlIgnore] public SecureString SNMP_Priv { get; set; }
+
+    public bool WakeOnLAN_Enabled { get; set; }
+    public string WakeOnLAN_MACAddress { get; set; }
+    public string WakeOnLAN_Broadcast { get; set; }
+
+    public bool RDAP_Enabled { get; set; }
+    public bool RDAP_InheritHost { get; set; } = true;
+    public string RDAP_Query { get; set; }
+    public RDAPQueryType RDAP_QueryType { get; set; } = GlobalStaticConfiguration.RDAP_QueryType;
+
+    public bool Whois_Enabled { get; set; }
+    public bool Whois_InheritHost { get; set; } = true;
+    public string Whois_Domain { get; set; }
+
+    public bool IPGeolocation_Enabled { get; set; }
+    public bool IPGeolocation_InheritHost { get; set; } = true;
+    public string IPGeolocation_Host { get; set; }
+
+    /// <summary>
+    ///     Checks if the profile is enabled for an application.
+    /// </summary>
+    /// <param name="application">Application to check.</param>
+    /// <returns>True if the profile is enabled for the application.</returns>
+    public bool IsEnabled(ApplicationName application)
+    {
+        return application switch
+        {
+            ApplicationName.NetworkInterface => NetworkInterface_Enabled,
+            ApplicationName.IPScanner => IPScanner_Enabled,
+            ApplicationName.PortScanner => PortScanner_Enabled,
+            ApplicationName.PingMonitor => PingMonitor_Enabled,
+            ApplicationName.Traceroute => Traceroute_Enabled,
+            ApplicationName.DNSLookup => DNSLookup_Enabled,
+            ApplicationName.RemoteDesktop => RemoteDesktop_Enabled,
+            ApplicationName.PowerShell => PowerShell_Enabled,
+            ApplicationName.PuTTY => PuTTY_Enabled,
+            ApplicationName.TigerVNC => TigerVNC_Enabled,
+            ApplicationName.WebConsole => WebConsole_Enabled,
+            ApplicationName.SNMP => SNMP_Enabled,
+            ApplicationName.WakeOnLAN => WakeOnLAN_Enabled,
+            ApplicationName.RDAP => RDAP_Enabled,
+            ApplicationName.Whois => Whois_Enabled,
+            ApplicationName.IPGeolocation => IPGeolocation_Enabled,
+            _ => false
+        };
+    }
+
+    /// <summary>
+    ///     Gets the target of the profile in an application, e.g. the host, IP range, domain, URL or MAC address.
+    /// </summary>
+    /// <param name="application">Application to get the target for.</param>
+    /// <returns>Target, or null if the application has none.</returns>
+    public string GetTarget(ApplicationName application)
+    {
+        return application switch
+        {
+            ApplicationName.IPScanner => IPScanner_HostOrIPRange,
+            ApplicationName.PortScanner => PortScanner_Host,
+            ApplicationName.PingMonitor => PingMonitor_Host,
+            ApplicationName.Traceroute => Traceroute_Host,
+            ApplicationName.DNSLookup => DNSLookup_Host,
+            ApplicationName.RemoteDesktop => RemoteDesktop_Host,
+            ApplicationName.PowerShell => PowerShell_Host,
+            ApplicationName.PuTTY => PuTTY_HostOrSerialLine,
+            ApplicationName.TigerVNC => TigerVNC_Host,
+            ApplicationName.WebConsole => WebConsole_Url,
+            ApplicationName.SNMP => SNMP_Host,
+            ApplicationName.WakeOnLAN => WakeOnLAN_MACAddress,
+            ApplicationName.RDAP => RDAP_Query,
+            ApplicationName.Whois => Whois_Domain,
+            ApplicationName.IPGeolocation => IPGeolocation_Host,
+            _ => null
+        };
+    }
+}

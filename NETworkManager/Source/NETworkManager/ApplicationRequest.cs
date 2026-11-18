@@ -1,0 +1,133 @@
+﻿using System;
+using DnsClient;
+using NETworkManager.Models;
+using NETworkManager.Models.Lookup;
+using NETworkManager.Models.RDAP;
+using NETworkManager.Profiles;
+
+namespace NETworkManager;
+
+/// <summary>
+///     Request to open an application (tool), optionally with a target or a profile, e.g. from the run command or from
+///     another tool ("Open in ..."). Applications that support more options have a derived request.
+/// </summary>
+/// <param name="Application">Application to open.</param>
+public record ApplicationRequest(ApplicationName Application)
+{
+    /// <summary>
+    ///     Target of the application, e.g. host(s), IP range, query or URL. If null (and no <see cref="Profile" /> is set),
+    ///     the application is only opened.
+    /// </summary>
+    public string Target { get; init; }
+
+    /// <summary>
+    ///     Profile to run in the application with its settings. <see cref="Target" /> is ignored if set.
+    /// </summary>
+    public ProfileInfo Profile { get; init; }
+
+    /// <summary>
+    ///     Starts the application with the target or profile (e.g. the scan). If false, the input is only filled in, so
+    ///     the options can be adjusted before starting. Remote tools always open the connect dialog (target) or connect
+    ///     (profile).
+    /// </summary>
+    public bool Start { get; init; } = true;
+}
+
+/// <summary>
+///     Request to open the DNS Lookup.
+/// </summary>
+public sealed record DNSLookupRequest() : ApplicationRequest(ApplicationName.DNSLookup)
+{
+    /// <summary>
+    ///     DNS server(s) to use (e.g. "1.1.1.1"). If null, the DNS server selected in the application is used.
+    /// </summary>
+    public string DNSServer { get; init; }
+
+    /// <summary>
+    ///     Query type. If null, the query type selected in the application is used.
+    /// </summary>
+    public QueryType? QueryType { get; init; }
+}
+
+/// <summary>
+///     Request to open the Port Scanner.
+/// </summary>
+public sealed record PortScannerRequest() : ApplicationRequest(ApplicationName.PortScanner)
+{
+    /// <summary>
+    ///     Ports to scan (e.g. "22;80;443" or "1-1024"). If null, the ports of the application are used.
+    /// </summary>
+    public string Ports { get; init; }
+}
+
+/// <summary>
+///     Request to open Wake on LAN.
+/// </summary>
+public sealed record WakeOnLANRequest() : ApplicationRequest(ApplicationName.WakeOnLAN)
+{
+    /// <summary>
+    ///     Broadcast address. If null, the broadcast address of the application is used.
+    /// </summary>
+    public string Broadcast { get; init; }
+}
+
+/// <summary>
+///     Request to open RDAP.
+/// </summary>
+public sealed record RDAPRequest() : ApplicationRequest(ApplicationName.RDAP)
+{
+    /// <summary>
+    ///     Query type. If null, the type is detected from the query (<see cref="RDAPQueryType.Auto" />).
+    /// </summary>
+    public RDAPQueryType? QueryType { get; init; }
+}
+
+/// <summary>
+///     Request to open the Subnet Calculator. <see cref="ApplicationRequest.Target" /> is the subnet, which is calculated
+///     (or subnetted / combined with <see cref="NewSubnetmask" /> / <see cref="Subnet2" />).
+/// </summary>
+public sealed record SubnetCalculatorRequest() : ApplicationRequest(ApplicationName.SubnetCalculator)
+{
+    /// <summary>
+    ///     New subnet mask or CIDR (e.g. "/26") to split the subnet into (Subnetting).
+    /// </summary>
+    public string NewSubnetmask { get; init; }
+
+    /// <summary>
+    ///     Second subnet to calculate the wide subnet with (Wide Subnet).
+    /// </summary>
+    public string Subnet2 { get; init; }
+}
+
+/// <summary>
+///     Request to open the Lookup. Without a <see cref="ApplicationRequest.Target" />, only the lookup is shown.
+/// </summary>
+public sealed record LookupRequest() : ApplicationRequest(ApplicationName.Lookup)
+{
+    /// <summary>
+    ///     Lookup to show (and run with the target).
+    /// </summary>
+    public LookupType Type { get; init; }
+}
+
+/// <summary>
+///     Request to show a tab of a tool (e.g. the IP Scanner tab that sent a notification). Only the tool is shown if the
+///     tab was closed (or is in another window).
+/// </summary>
+public sealed record ShowTabRequest : ApplicationRequest
+{
+    /// <summary>
+    ///     Creates a request to show a tab.
+    /// </summary>
+    /// <param name="application">Tool of the tab.</param>
+    /// <param name="tabId">Id of the tab (see <c>DragablzTabItem.Id</c>).</param>
+    public ShowTabRequest(ApplicationName application, Guid tabId) : base(application)
+    {
+        TabId = tabId;
+    }
+
+    /// <summary>
+    ///     Id of the tab to show.
+    /// </summary>
+    public Guid TabId { get; }
+}

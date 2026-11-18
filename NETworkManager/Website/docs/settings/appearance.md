@@ -1,0 +1,193 @@
+---
+sidebar_position: 2
+description: "Customize NETworkManager appearance with dark and light themes, accent colors, and custom theme files powered by MahApps.Metro."
+keywords: [NETworkManager, appearance settings, dark theme, light theme, accent colors, custom theme, MahApps.Metro]
+---
+
+# Appearance
+
+### Theme
+
+Theme of the application which is based on [`MahApps.Metro themes`](https://mahapps.com/docs/themes/usage)
+
+**Type:** `String`
+
+**Default:** `Dark`
+
+**Possible values:**
+
+- `Dark`
+- `Light`
+- `Black` - almost black (OLED look)
+- `Midnight` - dark blue
+- `Steel` - blue-gray
+- `Indigo` - dark violet-blue
+- `Mist` - light blue-gray
+- `Soft` - light gray, less bright than `Light`
+- `Paper` - warm, paper-like
+
+`Black`, `Midnight`, `Steel` and `Indigo` are variants of `Dark`, `Mist`, `Soft` and `Paper` dimmed variants of `Light` with a different background; all accents can be used with every theme.
+
+### Accent
+
+Accent of the application which is based on [`MahApps.Metro themes`](https://mahapps.com/docs/themes/usage)
+
+**Type:** `String`
+
+**Default:** `Mint`
+
+**Possible values:**
+
+- `Red`
+- `Green`
+- `Blue`
+- `Purple`
+- `Orange`
+- `Lime`
+- `Emerald`
+- `Teal`
+- `Cyan`
+- `Cobalt`
+- `Indigo`
+- `Violet`
+- `Pink`
+- `Magenta`
+- `Crimson`
+- `Amber`
+- `Yellow`
+- `Brown`
+- `Olive`
+- `Steel`
+- `Mauve`
+- `Taupe`
+- `Sienna`
+- `Sky`
+- `Ocean`
+- `Mint`
+- `Rose`
+- `Coral`
+- `Gold`
+- `Lavender`
+- `Slate`
+- `Graphite`
+
+:::note
+
+If you add, change or delete a theme in the folder, you must restart the application for the changes to be applied.
+
+:::
+
+### Accent glow
+
+Glow of the accent color in the top left corner of the windows with a frame (main window, window of dragged-out tabs, status window: window background, title bar and navigation). While a window is inactive, the glow is weaker. The boxes (tool, profiles) are not changed.
+
+**Type:** `NETworkManager.Models.Appearance.AccentGlowIntensity`
+
+**Default:** `Medium`
+
+**Possible values:**
+
+- `Off`
+- `Subtle`
+- `Medium`
+- `Strong`
+
+### Use custom themes
+
+Enables or disables the custom themes.
+
+**Type:** `Boolean`
+
+**Default:** `Disabled`
+
+Custom themes can be placed in the `Themes` folder in the application folder (e.g. `C:\Program Files\NETworkManager\Themes`). The file name has the format `<THEME>.<ACCENT>.xaml`. For instructions on how to create custom themes, see the [MahApp.Metro documentation](https://mahapps.com/docs/themes/thememanager#creating-custom-themes).
+
+:::note
+
+Custom themes override the [`Accent`](#accent) and [`Theme`](#theme) settings.
+
+:::
+
+### Animations
+
+Animations of the application: dialogs zoom and fade in when they are opened (the run command slides down), the
+indicator of the selected tool in the navigation grows in, expanders rotate their arrow and fade in their content,
+notifications slide in, the progress of the scanners moves smoothly and the other tabs slide to their new position
+while a tab is dragged.
+
+Short fades of colors (e.g. the mouse over background of buttons and the navigation, tooltips, the darkened background
+behind a dialog) are always shown - they don't move anything.
+
+**Type:** `NETworkManager.Models.Appearance.AnimationMode`
+
+**Default:** `System`
+
+**Possible values:**
+
+- `System` - Follow the Windows setting **Animation effects** (Windows 11: Settings > Accessibility > Visual effects, Windows 10: Settings > Ease of Access > Display > **Show animations in Windows**). It is often turned off on terminal servers, in virtual machines and in Remote Desktop sessions.
+- `On` - Always show animations.
+- `Off` - Don't show animations.
+
+<details className="alert alert--info">
+<summary>System-Wide Policy</summary>
+
+This setting can be controlled by administrators using a system-wide policy. See [System-Wide Policies](../system-wide-policies.md) for more information.
+
+**Policy Property:** `Appearance_Animations`
+
+**Values:**
+
+- `true` - Force enable animations for all users
+- `false` - Force disable animations for all users (e.g. on a terminal server)
+- Omit the property - Allow users to control this setting themselves
+
+**Example:**
+
+```json
+{
+  "Appearance_Animations": false
+}
+```
+
+</details>
+
+### Apply theme to PowerShell console
+
+Apply the current application theme to the PowerShell console global profile(s).
+
+**Type:** `Boolean`
+
+**Default:** `Disabled`
+
+If enabled, the PowerShell console global profile(s) are modified in the registry under `Computer\HKEY_CURRENT_USER\Console` (`HKCU:\Console`). This adjusts the background of the console and some other settings so that the console window integrates better with the NETworkManager application.
+
+The profiles are changed for the PowerShell consoles configured in the PowerShell tools. Both Windows PowerShell and PowerShell 7 and later are supported.
+
+Example paths under `HKCU:\Console`:
+
+| PowerShell path                                             | Registry profile path                                         |
+| ----------------------------------------------------------- | ------------------------------------------------------------- |
+| `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe` | `%SystemRoot%_System32_WindowsPowerShell_v1.0_powershell.exe` |
+| `C:\Program Files\PowerShell\7\pwsh.exe`                    | `C:_Program Files_PowerShell_7_pwsh.exe`                      |
+
+The following registry keys are created, modified or deleted in the registry profile path:
+
+| Name        | Type         | Action              | Value                               | Value basis |
+| ----------- | ------------ | ------------------- | ----------------------------------- | ----------- |
+| `REG_DWORD` | `Add/Modify` | `CursorType`        | `1`                                 | `Hex`       |
+| `REG_DWORD` | `Add/Modify` | `FontFamiliy`       | `36`                                | `Hex`       |
+| `REG_DWORD` | `Add/Modify` | `FontSize`          | `120000`                            | `Hex`       |
+| `REG_DWORD` | `Add/Modify` | `FontWeight`        | `400`                               | `Hex`       |
+| `REG_DWORD` | `Add/Modify` | `DefaultBackground` | `252525` (Dark) or `FFFFFF` (Light) | `Hex`       |
+| `REG_DWORD` | `Add/Modify` | `ColorTable00`      | `252525` (Dark) or `FFFFFF` (Light) | `Hex`       |
+| `REG_DWORD` | `Add/Modify` | `ColorTable07`      | `252525` (Dark) or `252525` (Light) | `Hex`       |
+| `REG_SZ`    | `Add/Modify` | `FaceName`          | `Consolas`                          | `String`    |
+| `REG_DWORD` | `Delete`     | `ScreenColors`      |                                     |             |
+
+If disabled, the Powershell console global profile(s) are no longer modified. But the original values are not restored.
+
+:::note
+
+Colors may not be set correctly when [`Use custom themes`](#use-custom-themes) is enabled.
+
+:::

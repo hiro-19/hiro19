@@ -1,0 +1,62 @@
+version: 2
+updates:
+- package-ecosystem: "nuget"
+  directory: "/Source"
+  # Stay on the .NET LTS releases (.NET 10 now, .NET 12 next) and skip the STS release .NET 11. Remove these rules when
+  # updating to .NET 12.
+  ignore:
+  # PowerShell 7.7 targets .NET 11 (7.6 LTS = .NET 10, 7.8 LTS = .NET 12)
+  - dependency-name: "Microsoft.PowerShell.SDK"
+    versions: ["7.7.x"]
+  # .NET 11 packages (pinned to fix vulnerabilities of the versions pulled in by Microsoft.PowerShell.SDK)
+  - dependency-name: "System.Security.Cryptography.*"
+    versions: ["11.x"]
+  schedule:
+    interval: weekly
+  target-branch: main
+  commit-message:
+    prefix: "Dependency (dependabot/nuget):"
+  # Only our own label instead of Dependabot's default labels (dependencies + ecosystem, e.g. .NET / javascript)
+  labels:
+    - ":heavy_check_mark: dependencies"
+- package-ecosystem: "dotnet-sdk"
+  directory: "/Source"
+  ignore:
+  - dependency-name: dotnet-sdk
+    update-types:
+    - "version-update:semver-major"
+  schedule:
+    interval: weekly
+  target-branch: main
+  commit-message:
+    prefix: "Dependency (dependabot/dotnet-sdk):"
+  labels:
+    - ":heavy_check_mark: dependencies"
+- package-ecosystem: "npm"
+  directory: "/Website"
+  schedule:
+    interval: weekly
+  target-branch: main
+  commit-message:
+    prefix: "Dependency (dependabot/npm):"
+  labels:
+    - ":heavy_check_mark: dependencies"
+  groups:
+    # react and react-dom must have the exact same version (otherwise the website build fails)
+    react:
+      patterns:
+        - "react"
+        - "react-dom"
+    # All @docusaurus/* packages must have the same version (otherwise the website build fails)
+    docusaurus:
+      patterns:
+        - "@docusaurus/*"
+- package-ecosystem: "github-actions"
+  directory: "/"
+  schedule:
+    interval: weekly
+  target-branch: main
+  commit-message:
+    prefix: "Dependency (dependabot/github-actions):"
+  labels:
+    - ":heavy_check_mark: dependencies"

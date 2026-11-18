@@ -1,0 +1,1002 @@
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Net;
+using System.Net.NetworkInformation;
+using NETworkManager.Utilities;
+
+namespace NETworkManager.Models.Network;
+
+/// <summary>
+///     Class containing information about a host in a <see cref="IPScanner" />. Created by the scanner when a host
+///     answered the first probe and updated afterwards, as further results arrive (see
+///     <see cref="IPScanner.HostUpdated" />): values of probes that are still running are placeholders, marked by the
+///     <c>Is...Pending</c> properties. Values are only changed through the updates of the scanner, which the consumer
+///     applies on the UI thread.
+/// </summary>
+public class IPScannerHostInfo : PropertyChangedBase
+{
+    /// <summary>
+    ///     Creates a new instance of <see cref="IPScannerHostInfo" /> with the results of the discovery.
+    /// </summary>
+    /// <param name="ipAddress">Scanned IP address.</param>
+    /// <param name="isReachable">Indicates whether the host is reachable.</param>
+    /// <param name="pingInfo">Information about the ping to the host.</param>
+    /// <param name="isAnyPortOpen">Indicates whether any port is open.</param>
+    /// <param name="ports">List of ports to show (open ports, all ports if unreachable ones are shown).</param>
+    /// <param name="netBIOSInfo">NetBIOS information about the host.</param>
+    public IPScannerHostInfo(IPAddress ipAddress, bool isReachable, PingInfo pingInfo, bool isAnyPortOpen,
+        List<PortInfo> ports, NetBIOSInfo netBIOSInfo)
+    {
+        IPAddress = ipAddress;
+        IsReachable = isReachable;
+        PingInfo = pingInfo;
+        IsAnyPortOpen = isAnyPortOpen;
+        Ports = ports;
+        NetBIOSInfo = netBIOSInfo;
+    }
+
+    /// <summary>
+    ///     Scanned IP address (input of the scan, e.g. with the IPv6 scope id). <see cref="PingInfo" /> contains the
+    ///     address of the ping reply.
+    /// </summary>
+    public IPAddress IPAddress { get; }
+
+    /// <summary>
+    ///     Indicates whether the host is reachable.
+    /// </summary>
+    public bool IsReachable
+    {
+        get;
+        internal set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    ///     Probes the host answered so far, i.e. how it was detected as reachable.
+    ///     <see cref="IPScannerDetectionMethod.None" /> if it is unreachable.
+    /// </summary>
+    public IPScannerDetectionMethod DetectedBy
+    {
+        get;
+        internal set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    ///     Roles of the host for the local computer (e.g. its default gateway), see
+    ///     <see cref="IPScannerHostRoleHelper" />.
+    /// </summary>
+    public IPScannerHostRole Role
+    {
+        get;
+        internal set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(PrimaryRole));
+        }
+    }
+
+    /// <summary>
+    ///     Most important role of the host (for its icon), see <see cref="IPScannerHostRoleHelper.GetPrimaryRole" />.
+    /// </summary>
+    public IPScannerHostRole PrimaryRole => IPScannerHostRoleHelper.GetPrimaryRole(Role);
+
+    /// <summary>
+    ///     Information about the ping to the host.
+    /// </summary>
+    public PingInfo PingInfo
+    {
+        get;
+        internal set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(OSGuess));
+            OnPropertyChanged(nameof(OSGuessHops));
+            OnPropertyChanged(nameof(OSName));
+            OnPropertyChanged(nameof(IsOSPending));
+        }
+    }
+
+    /// <summary>
+    ///     The operating system is guessed from the TTL in the scan of the host (the OS column shows the guess). Default
+    ///     on, set by the scan.
+    /// </summary>
+    public bool IsOSGuessEnabled
+    {
+        get;
+        internal set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(OSName));
+            OnPropertyChanged(nameof(IsOSPending));
+        }
+    } = true;
+
+    /// <summary>
+    ///     Name of a guessed operating system as shown in the OS column (translated, set by the application - this
+    ///     project has no translations), for sorting; the name of the value by default.
+    /// </summary>
+    public static Func<IPScannerOSGuess, string> OSGuessToString { get; set; } = x => x.ToString();
+
+    /// <summary>
+    ///     Operating system for sorting the OS column (as shown): the Windows version if it was read, otherwise the
+    ///     guess from the TTL (if enabled), empty if neither is known.
+    /// </summary>
+    public string OSName => HasWindowsOS
+        ? WindowsOS
+        : !IsOSGuessEnabled || OSGuess == IPScannerOSGuess.None
+            ? string.Empty
+            : OSGuessToString(OSGuess);
+
+    /// <summary>
+    ///     The operating system is not known yet, but a source (Windows host information, ping for the guess) is still
+    ///     running.
+    /// </summary>
+    public bool IsOSPending => string.IsNullOrEmpty(OSName) &&
+                               (IsWindowsPending || (IsOSGuessEnabled && IsPingPending));
+
+    /// <summary>
+    ///     Operating system guessed from the TTL of the ping reply (see <see cref="IPScannerOSGuessHelper" />),
+    ///     <see cref="IPScannerOSGuess.None" /> without a ping reply (or TTL, e.g. IPv6).
+    /// </summary>
+    public IPScannerOSGuess OSGuess => GetOSGuess().osGuess;
+
+    /// <summary>
+    ///     Number of hops to the host based on the TTL of the ping reply (see <see cref="OSGuess" />).
+    /// </summary>
+    public int OSGuessHops => GetOSGuess().hops;
+
+    private (IPScannerOSGuess osGuess, int initialTTL, int hops) GetOSGuess()
+    {
+        return !IsPingPending && PingInfo?.Status == IPStatus.Success
+            ? IPScannerOSGuessHelper.GetFromTTL(PingInfo.TTL)
+            : (IPScannerOSGuess.None, 0, 0);
+    }
+
+    /// <summary>
+    ///     Hostname of the host: DNS hostname, fallback to the mDNS hostname and the NetBIOS computer name.
+    /// </summary>
+    public string Hostname => !string.IsNullOrEmpty(DNSHostname)
+        ? DNSHostname
+        : !string.IsNullOrEmpty(MDNSHostname)
+            ? MDNSHostname
+            : NetBIOSInfo?.ComputerName ?? string.Empty;
+
+    /// <summary>
+    ///     mDNS hostname of the host (e.g. "macbook.local", see <see cref="MDNSResolver" />), empty if not resolved
+    ///     (yet).
+    /// </summary>
+    public string MDNSHostname
+    {
+        get;
+        internal set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(IsHostnamePending));
+            OnPropertyChanged(nameof(Hostname));
+        }
+    } = string.Empty;
+
+    /// <summary>
+    ///     DNS hostname of the host (PTR record), empty if not resolved (yet).
+    /// </summary>
+    public string DNSHostname
+    {
+        get;
+        internal set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(IsHostnamePending));
+            OnPropertyChanged(nameof(Hostname));
+        }
+    } = string.Empty;
+
+    /// <summary>
+    ///     Indicates whether any port is open.
+    /// </summary>
+    public bool IsAnyPortOpen
+    {
+        get;
+        internal set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    ///     List of ports to show (open ports, all ports if unreachable ones are shown). Replaced, never changed.
+    /// </summary>
+    public List<PortInfo> Ports
+    {
+        get;
+        internal set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+
+            // Computed once (sorting / search read them often)
+            var openPorts = value?.Where(x => x.State == PortState.Open).Select(x => x.Port).ToList() ?? [];
+            _openPorts = string.Join(", ", openPorts);
+            _openPortCount = openPorts.Count;
+
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(OpenPorts));
+            OnPropertyChanged(nameof(OpenPortCount));
+        }
+    }
+
+    /// <summary>
+    ///     Open ports, comma-separated in the order of the ports (e.g. "22, 80, 443"), empty if none.
+    /// </summary>
+    public string OpenPorts => _openPorts;
+
+    // Cache of OpenPorts / OpenPortCount, set with Ports
+    private string _openPorts = string.Empty;
+    private int _openPortCount;
+
+    /// <summary>
+    ///     Number of open ports (sorting of the open ports).
+    /// </summary>
+    public int OpenPortCount => _openPortCount;
+
+    /// <summary>
+    ///     NetBIOS information about the host.
+    /// </summary>
+    public NetBIOSInfo NetBIOSInfo
+    {
+        get;
+        internal set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(Hostname));
+            OnPropertyChanged(nameof(MACAddress));
+            OnPropertyChanged(nameof(Vendor));
+            OnPropertyChanged(nameof(Domain));
+            OnPropertyChanged(nameof(IsDomainPending));
+        }
+    }
+
+    /// <summary>
+    ///     Indicates whether the ping is still running (<see cref="PingInfo" /> is a placeholder).
+    /// </summary>
+    public bool IsPingPending
+    {
+        get;
+        internal set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(OSGuess));
+            OnPropertyChanged(nameof(OSGuessHops));
+            OnPropertyChanged(nameof(OSName));
+            OnPropertyChanged(nameof(IsOSPending));
+        }
+    }
+
+    /// <summary>
+    ///     Indicates whether the port scan is still running (<see cref="Ports" /> and <see cref="IsAnyPortOpen" />
+    ///     are placeholders).
+    /// </summary>
+    public bool IsPortScanPending
+    {
+        get;
+        internal set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    ///     Indicates whether the NetBIOS request is still running (<see cref="NetBIOSInfo" /> is a placeholder).
+    /// </summary>
+    public bool IsNetBIOSPending
+    {
+        get;
+        internal set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(IsHostnamePending));
+            OnPropertyChanged(nameof(IsMACAddressPending));
+            OnPropertyChanged(nameof(IsDomainPending));
+        }
+    }
+
+    /// <summary>
+    ///     MAC address from the neighbor table (ARP / NDP) or of a local network interface, empty if not resolved
+    ///     (yet).
+    /// </summary>
+    public string NeighborMACAddress
+    {
+        get;
+        internal set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(IsMACAddressPending));
+            OnPropertyChanged(nameof(MACAddress));
+            OnPropertyChanged(nameof(Vendor));
+        }
+    } = string.Empty;
+
+    /// <summary>
+    ///     Vendor of <see cref="NeighborMACAddress" />.
+    /// </summary>
+    public string NeighborVendor
+    {
+        get;
+        internal set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(Vendor));
+        }
+    } = string.Empty;
+
+    /// <summary>
+    ///     MAC address of the host: neighbor table (ARP / NDP) is preferred, fallback to NetBIOS.
+    /// </summary>
+    public string MACAddress => !string.IsNullOrEmpty(NeighborMACAddress)
+        ? NeighborMACAddress
+        : NetBIOSInfo?.MACAddress ?? string.Empty;
+
+    /// <summary>
+    ///     Vendor of the host based on <see cref="MACAddress" />.
+    /// </summary>
+    public string Vendor => !string.IsNullOrEmpty(NeighborMACAddress)
+        ? NeighborVendor
+        : NetBIOSInfo?.Vendor ?? string.Empty;
+
+    /// <summary>
+    ///     Indicates whether <see cref="Hostname" /> may still change: the DNS hostname is resolved, or there is none
+    ///     (yet) and the mDNS hostname or - without both - the NetBIOS name is still requested.
+    /// </summary>
+    public bool IsHostnamePending => !_areLookupsEnded &&
+                                     (IsDNSPending ||
+                                      (string.IsNullOrEmpty(DNSHostname) &&
+                                       (IsMDNSPending || (string.IsNullOrEmpty(MDNSHostname) && IsNetBIOSPending))));
+
+    /// <summary>
+    ///     Indicates whether <see cref="MACAddress" /> and <see cref="Vendor" /> may still change: the MAC address is
+    ///     resolved from the neighbor table, or there is none and the NetBIOS answer (fallback) is still requested.
+    /// </summary>
+    public bool IsMACAddressPending => !_areLookupsEnded &&
+                                       (IsNeighborMACAddressPending ||
+                                        (string.IsNullOrEmpty(NeighborMACAddress) && IsNetBIOSPending));
+
+    // Set by EndPendingLookups: the scan was canceled / failed, nothing arrives any more
+    private bool _areLookupsEnded;
+
+    /// <summary>
+    ///     Ends the lookups that are still running when the scan was canceled or failed (their results never arrive):
+    ///     DNS hostname, MAC address, mDNS hostname, web page and Windows show no value instead of "...", and
+    ///     <see cref="Hostname" /> / <see cref="MACAddress" /> no longer wait for NetBIOS. The probes that decide if
+    ///     the host is up (ping, ports, NetBIOS, SNMP) stay pending ("..." = not finished). Call it on the thread that
+    ///     owns the host (UI thread).
+    /// </summary>
+    public void EndPendingLookups()
+    {
+        IsDNSPending = false;
+        IsNeighborMACAddressPending = false;
+        IsMDNSPending = false;
+        IsWebPagePending = false;
+        IsWindowsPending = false;
+
+        _areLookupsEnded = true;
+
+        OnPropertyChanged(nameof(IsHostnamePending));
+        OnPropertyChanged(nameof(IsMACAddressPending));
+    }
+
+    /// <summary>
+    ///     Title of the web page of the host, see <see cref="WebPageResolver" />. Empty if it has none or it was not
+    ///     read (yet).
+    /// </summary>
+    public string WebTitle
+    {
+        get;
+        internal set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(WebSummary));
+        }
+    } = string.Empty;
+
+    /// <summary>
+    ///     Short summary of the web page for the result: the title, otherwise the realm of the login prompt, the
+    ///     <c>Server</c> header or the target of a redirect to another host.
+    /// </summary>
+    public string WebSummary => new[] { WebTitle, WebRealm, WebServer, WebRedirectURL }
+        .FirstOrDefault(x => !string.IsNullOrEmpty(x)) ?? string.Empty;
+
+    /// <summary>
+    ///     TLS certificate of the web page, null for http or if none answered (yet).
+    /// </summary>
+    public WebCertificateInfo WebCertificate
+    {
+        get;
+        internal set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    ///     Realm of the login prompt of the web page (<c>WWW-Authenticate</c> header), empty if there is none.
+    /// </summary>
+    public string WebRealm
+    {
+        get;
+        internal set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(WebSummary));
+        }
+    } = string.Empty;
+
+    /// <summary>
+    ///     Target of a redirect of the web page to another host, empty if there is none.
+    /// </summary>
+    public string WebRedirectURL
+    {
+        get;
+        internal set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(WebSummary));
+        }
+    } = string.Empty;
+
+    /// <summary>
+    ///     HTTP status code of the web page (e.g. 200), 0 if none answered (yet).
+    /// </summary>
+    public int WebStatusCode
+    {
+        get;
+        internal set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    ///     Value of the <c>Server</c> header of the web page, empty if there is none.
+    /// </summary>
+    public string WebServer
+    {
+        get;
+        internal set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(WebSummary));
+        }
+    } = string.Empty;
+
+    /// <summary>
+    ///     Value of the <c>X-Powered-By</c> header of the web page, empty if there is none.
+    /// </summary>
+    public string WebPoweredBy
+    {
+        get;
+        internal set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+        }
+    } = string.Empty;
+
+    /// <summary>
+    ///     URL of the web page that answered (e.g. "https://192.168.1.1/"), empty if none answered (yet).
+    /// </summary>
+    public string WebURL
+    {
+        get;
+        internal set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+        }
+    } = string.Empty;
+
+    /// <summary>
+    ///     Name of the host read via SNMP (sysName), empty if not read (yet).
+    /// </summary>
+    public string SNMPName
+    {
+        get;
+        internal set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+        }
+    } = string.Empty;
+
+    /// <summary>
+    ///     Description of the host read via SNMP (sysDescr), empty if not read (yet).
+    /// </summary>
+    public string SNMPDescription
+    {
+        get;
+        internal set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+        }
+    } = string.Empty;
+
+    /// <summary>
+    ///     Location of the host read via SNMP (sysLocation), empty if not read (yet).
+    /// </summary>
+    public string SNMPLocation
+    {
+        get;
+        internal set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+        }
+    } = string.Empty;
+
+    /// <summary>
+    ///     SNMPv3 error of the host (e.g. unknown user, wrong password: it answered, the values are empty),
+    ///     <see cref="SNMPV3ErrorCode.None" /> otherwise.
+    /// </summary>
+    public SNMPV3ErrorCode SNMPError
+    {
+        get;
+        internal set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(HasSNMPError));
+        }
+    }
+
+    /// <summary>
+    ///     The host answered the SNMPv3 request with an error (see <see cref="SNMPError" />).
+    /// </summary>
+    public bool HasSNMPError => SNMPError != SNMPV3ErrorCode.None;
+
+    /// <summary>
+    ///     Windows host information (SMB / NTLM without credentials, NetApi with the credentials of the scan), null if
+    ///     it was not read (yet) or the host didn't answer on TCP 445.
+    /// </summary>
+    public WindowsHostInfo Windows
+    {
+        get;
+        internal set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+
+            // Computed once (sorting / search of the OS and Logged-on users columns read them often)
+            _windowsOS = value?.OS ?? string.Empty;
+            _windowsUsers = value?.Users is { } users ? string.Join(", ", users) : string.Empty;
+
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(WindowsOS));
+            OnPropertyChanged(nameof(HasWindowsOS));
+            OnPropertyChanged(nameof(OSName));
+            OnPropertyChanged(nameof(IsOSPending));
+            OnPropertyChanged(nameof(WindowsDomain));
+            OnPropertyChanged(nameof(Domain));
+            OnPropertyChanged(nameof(IsDomainPending));
+            OnPropertyChanged(nameof(WindowsTimeOffset));
+            OnPropertyChanged(nameof(IsWindowsTimeOffsetLarge));
+            OnPropertyChanged(nameof(WindowsUsers));
+            OnPropertyChanged(nameof(HasWindowsError));
+        }
+    }
+
+    /// <summary>
+    ///     The NetApi requests of the Windows host information failed (e.g. access denied, wrong password) or were not
+    ///     sent (credentials rejected on another host).
+    /// </summary>
+    public bool HasWindowsError => Windows is { Error: not 0 };
+
+    /// <summary>
+    ///     Name of the Windows version (e.g. "Windows 11 25H2"), empty if not known.
+    /// </summary>
+    public string WindowsOS => _windowsOS;
+
+    // Cache of WindowsOS, set with Windows
+    private string _windowsOS = string.Empty;
+
+    /// <summary>
+    ///     The Windows version is known (shown in the OS column instead of the guess from the TTL).
+    /// </summary>
+    public bool HasWindowsOS => !string.IsNullOrEmpty(WindowsOS);
+
+    /// <summary>
+    ///     Domain or workgroup of the Windows host, empty if not known.
+    /// </summary>
+    public string WindowsDomain => Windows?.Domain ?? string.Empty;
+
+    /// <summary>
+    ///     Domain or workgroup of the host for the Domain column: of the Windows host information, otherwise the
+    ///     workgroup / domain of the NetBIOS answer, empty if neither is known.
+    /// </summary>
+    public string Domain => !string.IsNullOrEmpty(WindowsDomain)
+        ? WindowsDomain
+        : NetBIOSInfo is { IsReachable: true } ? NetBIOSInfo.GroupName ?? string.Empty : string.Empty;
+
+    /// <summary>
+    ///     The domain is not known yet, but a source (Windows host information, NetBIOS) is still running.
+    /// </summary>
+    public bool IsDomainPending => string.IsNullOrEmpty(Domain) && (IsWindowsPending || IsNetBIOSPending);
+
+    /// <summary>
+    ///     Time of the host minus the local time, null if not known.
+    /// </summary>
+    public TimeSpan? WindowsTimeOffset => Windows?.TimeOffset;
+
+    /// <summary>
+    ///     Max. time offset of Kerberos (default of the domain policy): a larger offset breaks the logon in a domain.
+    /// </summary>
+    public static readonly TimeSpan MaxKerberosTimeOffset = TimeSpan.FromMinutes(5);
+
+    /// <summary>
+    ///     The time offset is larger than the Kerberos limit (highlighted in the result).
+    /// </summary>
+    public bool IsWindowsTimeOffsetLarge => WindowsTimeOffset?.Duration() > MaxKerberosTimeOffset;
+
+    /// <summary>
+    ///     Logged-on users, comma-separated (empty if none or not read).
+    /// </summary>
+    public string WindowsUsers => _windowsUsers;
+
+    // Cache of WindowsUsers, set with Windows
+    private string _windowsUsers = string.Empty;
+
+    /// <summary>
+    ///     Indicates whether the DNS hostname (PTR) is still resolved (<see cref="DNSHostname" /> is a placeholder).
+    /// </summary>
+    public bool IsDNSPending
+    {
+        get;
+        internal set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(IsHostnamePending));
+        }
+    }
+
+    /// <summary>
+    ///     Indicates whether the MAC address is still resolved from the neighbor table (<see cref="NeighborMACAddress" />
+    ///     and <see cref="NeighborVendor" /> are placeholders).
+    /// </summary>
+    public bool IsNeighborMACAddressPending
+    {
+        get;
+        internal set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(IsMACAddressPending));
+        }
+    }
+
+    /// <summary>
+    ///     Indicates whether the mDNS request is still running (<see cref="MDNSHostname" /> is a placeholder).
+    /// </summary>
+    public bool IsMDNSPending
+    {
+        get;
+        internal set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(IsHostnamePending));
+        }
+    }
+
+    /// <summary>
+    ///     Indicates whether the title of the web page is still read, or the port scan it needs is still running
+    ///     (<see cref="WebTitle" /> is a placeholder).
+    /// </summary>
+    public bool IsWebPagePending
+    {
+        get;
+        internal set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    ///     Indicates whether the Windows host information is still read, or the port scan it needs is still running
+    ///     (<see cref="Windows" /> is a placeholder).
+    /// </summary>
+    public bool IsWindowsPending
+    {
+        get;
+        internal set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(IsDomainPending));
+            OnPropertyChanged(nameof(IsOSPending));
+        }
+    }
+
+    /// <summary>
+    ///     Indicates whether the SNMP request is still running (<see cref="SNMPName" />,
+    ///     <see cref="SNMPDescription" />, <see cref="SNMPLocation" /> are placeholders).
+    /// </summary>
+    public bool IsSNMPPending
+    {
+        get;
+        internal set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    ///     Change since the previous scan of the same input (set by the view model after the scan, see
+    ///     <see cref="IPScannerScanComparer" />). Not taken over by <see cref="CopyFrom" />: a rescan of the host keeps
+    ///     the change of the scan.
+    /// </summary>
+    public IPScannerHostChange Change
+    {
+        get;
+        set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    ///     MAC address of the previous scan if it changed (<see cref="IPScannerHostChange.MACChanged" />), otherwise
+    ///     empty.
+    /// </summary>
+    public string PreviousMACAddress
+    {
+        get;
+        set
+        {
+            if (value == field)
+                return;
+
+            field = value;
+            OnPropertyChanged();
+        }
+    } = string.Empty;
+
+    /// <summary>
+    ///     Creates the row of a host that was up in the previous scan and is not up now
+    ///     (<see cref="IPScannerHostChange.Gone" />), with the hostname, MAC address and role of the previous scan.
+    /// </summary>
+    /// <param name="ipAddress">IP address of the host.</param>
+    /// <param name="previous">The host in the previous scan.</param>
+    /// <returns>Unreachable host, without pending values.</returns>
+    public static IPScannerHostInfo CreateGone(IPAddress ipAddress, IPScannerBaselineHost previous)
+    {
+        var host = new IPScannerHostInfo(ipAddress, false,
+            new PingInfo(System.DateTime.Now, ipAddress, IPStatus.Unknown), false, [], new NetBIOSInfo(ipAddress))
+        {
+            // The shown hostname of the previous scan (DNS, mDNS or NetBIOS) - the host is not asked again
+            DNSHostname = previous.Hostname,
+            NeighborMACAddress = previous.MACAddress,
+            NeighborVendor = previous.Vendor,
+            Role = previous.Role,
+            Change = IPScannerHostChange.Gone
+        };
+
+        host.EndPendingLookups();
+
+        return host;
+    }
+
+    /// <summary>
+    ///     Marks a shown row of a host that is down now as <see cref="IPScannerHostChange.Gone" /> (e.g. a row of a
+    ///     repeated scan): the hostname and MAC address of the previous scan are shown if the host has none now.
+    /// </summary>
+    /// <param name="previous">The host in the previous scan.</param>
+    public void MarkGone(IPScannerBaselineHost previous)
+    {
+        if (string.IsNullOrEmpty(Hostname))
+            DNSHostname = previous.Hostname;
+
+        if (string.IsNullOrEmpty(MACAddress))
+        {
+            NeighborMACAddress = previous.MACAddress;
+            NeighborVendor = previous.Vendor;
+        }
+
+        Change = IPScannerHostChange.Gone;
+    }
+
+    /// <summary>
+    ///     Takes over all values of another result of the same host (e.g. a rescan), so the shown row keeps its
+    ///     identity (selection, expanded details). Call it on the thread that owns the host (UI thread).
+    /// </summary>
+    /// <param name="source">New result of the host.</param>
+    public void CopyFrom(IPScannerHostInfo source)
+    {
+        IsReachable = source.IsReachable;
+        DetectedBy = source.DetectedBy;
+        Role = source.Role;
+        IsOSGuessEnabled = source.IsOSGuessEnabled;
+        PingInfo = source.PingInfo;
+        IsAnyPortOpen = source.IsAnyPortOpen;
+        Ports = source.Ports;
+        NetBIOSInfo = source.NetBIOSInfo;
+        IsPingPending = source.IsPingPending;
+        IsPortScanPending = source.IsPortScanPending;
+        IsNetBIOSPending = source.IsNetBIOSPending;
+        DNSHostname = source.DNSHostname;
+        MDNSHostname = source.MDNSHostname;
+        WebTitle = source.WebTitle;
+        WebURL = source.WebURL;
+        WebStatusCode = source.WebStatusCode;
+        WebServer = source.WebServer;
+        WebPoweredBy = source.WebPoweredBy;
+        WebRealm = source.WebRealm;
+        WebCertificate = source.WebCertificate;
+        WebRedirectURL = source.WebRedirectURL;
+        SNMPName = source.SNMPName;
+        SNMPDescription = source.SNMPDescription;
+        SNMPLocation = source.SNMPLocation;
+        SNMPError = source.SNMPError;
+        Windows = source.Windows;
+        IsDNSPending = source.IsDNSPending;
+        IsNeighborMACAddressPending = source.IsNeighborMACAddressPending;
+        IsMDNSPending = source.IsMDNSPending;
+        IsWebPagePending = source.IsWebPagePending;
+        IsWindowsPending = source.IsWindowsPending;
+
+        // A rescan restarts the lookups (or a canceled one restores the ended state)
+        _areLookupsEnded = source._areLookupsEnded;
+        OnPropertyChanged(nameof(IsHostnamePending));
+        OnPropertyChanged(nameof(IsMACAddressPending));
+        IsSNMPPending = source.IsSNMPPending;
+        NeighborMACAddress = source.NeighborMACAddress;
+        NeighborVendor = source.NeighborVendor;
+    }
+
+    /// <summary>
+    ///     Creates a copy with the current values, e.g. for an export in the background while the scan still updates
+    ///     the host. Call it on the thread that applies the updates (UI thread).
+    /// </summary>
+    /// <returns>Copy of the host information (without event subscribers).</returns>
+    public IPScannerHostInfo Clone()
+    {
+        var clone = new IPScannerHostInfo(IPAddress, IsReachable, PingInfo, IsAnyPortOpen, Ports, NetBIOSInfo);
+
+        // One list of the values (see CopyFrom), the new instance has no event subscribers yet
+        clone.CopyFrom(this);
+        clone.Change = Change;
+        clone.PreviousMACAddress = PreviousMACAddress;
+
+        return clone;
+    }
+}

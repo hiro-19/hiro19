@@ -1,0 +1,53 @@
+name: "CodeQL"
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '38 21 * * 6'
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ${{ matrix.runs-on }}
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      security-events: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # C# is built (WPF, Windows only) for the most precise results.
+          - language: csharp
+            build-mode: autobuild
+            runs-on: windows-latest
+          - language: javascript-typescript
+            build-mode: none
+            runs-on: ubuntu-latest
+          # GitHub Actions workflows (e.g. pull_request_target, permissions).
+          - language: actions
+            build-mode: none
+            runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+
+    # The C# autobuild needs the SDK from Source/global.json (the runner image may only have an older one)
+    - name: Setup .NET
+      if: matrix.language == 'csharp'
+      uses: actions/setup-dotnet@v6
+      with:
+        global-json-file: Source/global.json
+
+    - name: Initialize CodeQL
+      uses: github/codeql-action/init@v4
+      with:
+        languages: ${{ matrix.language }}
+        build-mode: ${{ matrix.build-mode }}
+
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v4
+      with:
+        category: "/language:${{ matrix.language }}"

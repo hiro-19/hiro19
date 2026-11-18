@@ -1,0 +1,65 @@
+## NETworkManager
+## Build results, IDE / user-specific files and local tool files.
+## Website-specific entries (node_modules, build, .docusaurus) are in Website/.gitignore.
+
+# Build results (.NET SDK and WiX projects build to bin/ and obj/)
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Aa][Rr][Mm]64/
+artifacts/
+publish/
+Build/
+
+# Build and test logs
+*.binlog
+*.log
+[Tt]est[Rr]esult*/
+*.trx
+
+# Visual Studio
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# JetBrains Rider / ReSharper
+.idea/
+*.sln.iml
+_ReSharper*/
+*.DotSettings.user
+
+# Visual Studio Code
+.vscode/
+
+# NuGet (packages are restored, local packages e.g. from Chocolatey/ are not versioned)
+*.nupkg
+*.snupkg
+**/[Pp]ackages/*
+!**/[Pp]ackages/build/
+
+# Code signing certificates
+*.pfx
+
+# Binaries (dependencies are restored via NuGet, releases are built by AppVeyor)
+*.exe
+*.dll
+
+# Operating system files
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# Node.js (see also Website/.gitignore)
+node_modules/
+
+# Local notes
+ToDo.md
+
+# Claude Code: only the shared skills are versioned (local settings, reviews and runtime files are ignored)
+**/.claude/*
+!/.claude/skills/
